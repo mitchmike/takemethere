@@ -9,8 +9,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.file_path // empty' | { read -r f; [ -n \"$f\" ] && git -C \"$(dirname \"$f\")\" add \"$f\"; } 2>/dev/null || true",
-            "shell": "bash"
+            "command": "$json = [Console]::In.ReadToEnd() | ConvertFrom-Json; $f = $json.tool_input.file_path; if ($f) { git add \"$f\" } 2>$null",
+            "shell": "powershell"
           }
         ]
       }
