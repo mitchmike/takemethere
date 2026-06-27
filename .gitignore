@@ -3,4 +3,6 @@ dist/
 .env
 *.pb
 !packages/backend/test/fixtures/*.pb
-.idea/
+.idea/*
+!.idea/runConfigurations/
+!.idea/runConfigurations/**
