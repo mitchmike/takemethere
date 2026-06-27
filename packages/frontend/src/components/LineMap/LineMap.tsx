@@ -7,6 +7,7 @@ import { REGION_ORDER, LINE_MAP } from '@takemethere/shared';
 import { LineFilter } from './LineFilter.js';
 import { DirectionFilter } from './DirectionFilter.js';
 import { LineStrip } from './LineStrip.js';
+import { TrainInfoPanel } from './TrainInfoPanel.js';
 
 export const STRIP_HEIGHT = 100;
 export const VERT_STRIP_WIDTH = 120;  // wider to fit 11px labels without clipping
@@ -48,7 +49,7 @@ export function LineMap() {
   const computedSvgHeight = isVertical ? VERT_SVG_HEIGHT : visibleLines.length * STRIP_HEIGHT + 24;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', position: 'relative' }}>
       <div style={{
         background: '#fff',
         border: '1px solid #e4e4e7',
@@ -98,6 +99,10 @@ export function LineMap() {
             );
           })}
         </svg>
+      </div>
+
+      <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 100 }}>
+        <TrainInfoPanel />
       </div>
     </div>
   );

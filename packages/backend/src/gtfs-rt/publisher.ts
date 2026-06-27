@@ -13,6 +13,9 @@ export interface StopData extends StopCoord {
 
 let routeLineMap: Map<string, string> = new Map();
 
+// tripId → direction_id from GTFS static (0=outbound, 1=inbound)
+let tripDirections: Map<string, number> = new Map();
+
 // Per-line stop list sorted by canonicalX
 let lineStops: Map<string, StopData[]> = new Map();
 
@@ -58,6 +61,11 @@ let prevByLineCount = new Map<string, number>();
 
 export function setRouteLineMap(map: Map<string, string>): void {
   routeLineMap = map;
+}
+
+export function setTripDirections(map: Map<string, number>): void {
+  tripDirections = map;
+  console.log(`[app] Loaded ${map.size} trip→direction mappings`);
 }
 
 export function setGlobalStopNames(map: Map<string, string>): void {
@@ -163,6 +171,7 @@ export async function publishPositions(
       nextStopId,
       nextStopCanonicalX,
       nextArrivalEpoch,
+      directionId: pos.tripId ? (tripDirections.get(pos.tripId) ?? null) : null,
     };
 
     await redis.set(keys.vehicle(pos.tripId), JSON.stringify(live), 'EX', 120);

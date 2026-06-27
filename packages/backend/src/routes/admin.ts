@@ -85,9 +85,9 @@ function spawnLoaderWorker(): void {
     }
   });
 
-  worker.on('error', err => {
+  worker.on('error', ({message}) => {
     loadState.loading = false;
-    loadState.lastError = err.message;
+    loadState.lastError = message;
     loadState.currentStep = null;
   });
 }

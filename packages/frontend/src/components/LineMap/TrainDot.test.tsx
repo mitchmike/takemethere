@@ -24,6 +24,7 @@ function makeTrain(overrides: Partial<LivePosition> = {}): LivePosition {
     nextStopId: 'S2',
     nextStopCanonicalX: 0.6,
     nextArrivalEpoch: Date.now() / 1000 + 60,
+    directionId: 0,
     ...overrides,
   };
 }
@@ -63,7 +64,7 @@ describe('TrainDot', () => {
     expect(container.querySelector('g')).toBeNull();
   });
 
-  it('fills the train body rect with lineColor', () => {
+  it('fills the circle body with lineColor', () => {
     const { container } = render(
       <svg>
         <TrainDot
@@ -76,13 +77,12 @@ describe('TrainDot', () => {
         />
       </svg>
     );
-    const rects = Array.from(container.querySelectorAll('rect'));
-    // At least one rect should be filled with the line color (the body)
-    const bodyRect = rects.find(r => r.getAttribute('fill') === '#FF0000');
-    expect(bodyRect).toBeTruthy();
+    const circles = Array.from(container.querySelectorAll('circle'));
+    const body = circles.find(c => c.getAttribute('fill') === '#FF0000');
+    expect(body).toBeTruthy();
   });
 
-  it('renders a nose polygon when direction is known', () => {
+  it('renders rail lines below the train body', () => {
     const { container } = render(
       <svg>
         <TrainDot
@@ -95,23 +95,8 @@ describe('TrainDot', () => {
         />
       </svg>
     );
-    expect(container.querySelector('polygon')).toBeTruthy();
-  });
-
-  it('does not render a nose polygon when direction is unknown', () => {
-    const { container } = render(
-      <svg>
-        <TrainDot
-          position={makeTrain({ nextStopCanonicalX: -1 })}
-          orientation="horizontal"
-          scaleX={SCALE}
-          stripY={50}
-          lineColor="#094C8D"
-          movingForward={null}
-        />
-      </svg>
-    );
-    expect(container.querySelector('polygon')).toBeNull();
+    const lines = container.querySelectorAll('line');
+    expect(lines.length).toBeGreaterThanOrEqual(2);
   });
 
   it('renders correctly for vertical orientation', () => {
@@ -128,15 +113,14 @@ describe('TrainDot', () => {
       </svg>
     );
     expect(container.querySelector('g')).toBeTruthy();
-    expect(container.querySelector('rect')).toBeTruthy();
+    expect(container.querySelector('circle')).toBeTruthy();
   });
 
-  it('renders a glow rect when the train is selected', () => {
+  it('renders a glow ring when the train is selected', () => {
     vi.doMock('../../store/uiStore.js', () => ({
       useUiStore: (selector: any) =>
         selector({ selectedTripId: 'T1', actions: { selectTrip: vi.fn() } }),
     }));
-    // Base render still works (glow rect is conditional on selected state from store)
     const { container } = render(
       <svg>
         <TrainDot

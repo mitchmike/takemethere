@@ -10,7 +10,7 @@ import { linesRoutes } from './routes/lines.js';
 import { tripsRoutes } from './routes/trips.js';
 import { adminRoutes } from './routes/admin.js';
 import { startPoller, stopPoller } from './gtfs-rt/poller.js';
-import { setRouteLineMap, setLineStopCoords, setGlobalStopNames } from './gtfs-rt/publisher.js';
+import { setRouteLineMap, setLineStopCoords, setGlobalStopNames, setTripDirections } from './gtfs-rt/publisher.js';
 import { getLines } from './db/queries/lines.js';
 
 async function loadRouteLineMap(): Promise<Map<string, string>> {
@@ -40,6 +40,13 @@ async function loadGlobalStopNames(): Promise<void> {
   console.log(`[app] Loaded ${rows.length} global stop names for TU fallback lookup`);
 }
 
+async function loadTripDirections(): Promise<void> {
+  const { rows } = await pool.query<{ trip_id: string; direction_id: number }>(
+    `SELECT trip_id, direction_id FROM trips WHERE direction_id IS NOT NULL`
+  );
+  setTripDirections(new Map(rows.map(r => [r.trip_id, r.direction_id])));
+}
+
 export async function buildApp() {
   const fastify = Fastify({ logger: true, pluginTimeout: 30_000 });
 
@@ -62,6 +69,7 @@ export async function buildApp() {
         loadRouteLineMap(),
         loadLineStopCoordsFromLines(),
         loadGlobalStopNames(),
+        loadTripDirections(),
       ]);
       setRouteLineMap(routeMap);
     } catch (err) {

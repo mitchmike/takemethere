@@ -4,11 +4,10 @@ import { useLinesStore } from '../../store/linesStore.js';
 import { TrainDot } from './TrainDot.js';
 import { VERT_STRIP_WIDTH, VERT_SVG_HEIGHT } from './LineMap.js';
 
-/** Returns true/false for known direction, null when direction can't be determined. */
+/** Returns true (outbound) / false (inbound) / null (unknown) from GTFS direction_id. */
 function movingForward(p: LivePosition): boolean | null {
-  if (p.nextStopCanonicalX < 0) return null;
-  if (p.nextStopCanonicalX > p.canonicalX + 0.005) return true;
-  if (p.nextStopCanonicalX < p.canonicalX - 0.005) return false;
+  if (p.directionId === 0) return true;
+  if (p.directionId === 1) return false;
   return null;
 }
 
@@ -85,43 +84,28 @@ export function LineStrip({ line, trains, orientation, svgWidth, svgHeight, stri
           strokeLinecap="round"
         />
 
+        {/* Stop circles — below trains */}
         {stops.map((stop, i) => {
           const cy = scaleY(stop.canonicalX);
           const isSelected = selectedStopName === stop.stopName;
           const hasSelection = selectedStopName !== null;
           const dimmed = hasSelection && !isSelected;
-          const label = stop.stopName.replace(/ Station$/, '');
           return (
-            <g
+            <circle
               key={stop.stopId}
+              cx={stripX} cy={cy}
+              r={DOT_RADIUS}
+              fill={isSelected ? '#f59e0b' : '#fff'}
+              stroke={isSelected ? '#f59e0b' : line.color}
+              strokeWidth={2}
+              opacity={dimmed ? 0.2 : 1}
               onClick={() => selectStop(isSelected ? null : stop.stopName)}
               style={{ cursor: 'pointer' }}
-            >
-              <circle
-                cx={stripX} cy={cy}
-                r={DOT_RADIUS}
-                fill={isSelected ? '#f59e0b' : '#fff'}
-                stroke={isSelected ? '#f59e0b' : line.color}
-                strokeWidth={2}
-                opacity={dimmed ? 0.2 : 1}
-              />
-              {showLabel[i] && (
-                <text
-                  x={stripX + DOT_RADIUS + 5}
-                  y={cy}
-                  fill={isSelected ? '#f59e0b' : '#52525b'}
-                  fontSize={VERT_LABEL_FONT}
-                  fontWeight={isSelected ? 600 : 400}
-                  dominantBaseline="middle"
-                  opacity={dimmed ? 0.2 : 1}
-                >
-                  {label}
-                </text>
-              )}
-            </g>
+            />
           );
         })}
 
+        {/* Trains — above stop circles */}
         {visibleTrains.map(train => (
           <TrainDot
             key={train.tripId}
@@ -133,6 +117,32 @@ export function LineStrip({ line, trains, orientation, svgWidth, svgHeight, stri
             movingForward={movingForward(train)}
           />
         ))}
+
+        {/* Labels — topmost layer */}
+        {stops.map((stop, i) => {
+          if (!showLabel[i]) return null;
+          const cy = scaleY(stop.canonicalX);
+          const isSelected = selectedStopName === stop.stopName;
+          const hasSelection = selectedStopName !== null;
+          const dimmed = hasSelection && !isSelected;
+          const label = stop.stopName.replace(/ Station$/, '');
+          return (
+            <text
+              key={stop.stopId}
+              x={stripX + DOT_RADIUS + 5}
+              y={cy}
+              fill={isSelected ? '#f59e0b' : '#52525b'}
+              fontSize={VERT_LABEL_FONT}
+              fontWeight={isSelected ? 600 : 400}
+              dominantBaseline="middle"
+              opacity={dimmed ? 0.2 : 1}
+              onClick={() => selectStop(isSelected ? null : stop.stopName)}
+              style={{ cursor: 'pointer' }}
+            >
+              {label}
+            </text>
+          );
+        })}
       </g>
     );
   }
@@ -174,44 +184,28 @@ export function LineStrip({ line, trains, orientation, svgWidth, svgHeight, stri
         strokeLinecap="round"
       />
 
-      {stops.map((stop, i) => {
+      {/* Stop circles — below trains */}
+      {stops.map((stop) => {
         const cx = scaleX(stop.canonicalX);
         const isSelected = selectedStopName === stop.stopName;
         const hasSelection = selectedStopName !== null;
         const dimmed = hasSelection && !isSelected;
-        const label = stop.stopName.replace(/ Station$/, '');
-
         return (
-          <g
+          <circle
             key={stop.stopId}
+            cx={cx} cy={lineY}
+            r={DOT_RADIUS}
+            fill={isSelected ? '#f59e0b' : '#fff'}
+            stroke={isSelected ? '#f59e0b' : line.color}
+            strokeWidth={2}
+            opacity={dimmed ? 0.2 : 1}
             onClick={() => selectStop(isSelected ? null : stop.stopName)}
             style={{ cursor: 'pointer' }}
-          >
-            <circle
-              cx={cx} cy={lineY}
-              r={DOT_RADIUS}
-              fill={isSelected ? '#f59e0b' : '#fff'}
-              stroke={isSelected ? '#f59e0b' : line.color}
-              strokeWidth={2}
-              opacity={dimmed ? 0.2 : 1}
-            />
-            {showLabel[i] && (
-              <text
-                transform={`rotate(-48, ${cx}, ${lineY})`}
-                x={cx + 2}
-                y={lineY - 7}
-                fill={isSelected ? '#f59e0b' : '#52525b'}
-                fontSize={11}
-                fontWeight={isSelected ? 600 : 400}
-                opacity={dimmed ? 0.2 : 1}
-              >
-                {label}
-              </text>
-            )}
-          </g>
+          />
         );
       })}
 
+      {/* Trains — above stop circles */}
       {visibleTrains.map(train => (
         <TrainDot
           key={train.tripId}
@@ -223,6 +217,32 @@ export function LineStrip({ line, trains, orientation, svgWidth, svgHeight, stri
           movingForward={movingForward(train)}
         />
       ))}
+
+      {/* Labels — topmost layer */}
+      {stops.map((stop, i) => {
+        if (!showLabel[i]) return null;
+        const cx = scaleX(stop.canonicalX);
+        const isSelected = selectedStopName === stop.stopName;
+        const hasSelection = selectedStopName !== null;
+        const dimmed = hasSelection && !isSelected;
+        const label = stop.stopName.replace(/ Station$/, '');
+        return (
+          <text
+            key={stop.stopId}
+            transform={`rotate(-48, ${cx}, ${lineY})`}
+            x={cx + 2}
+            y={lineY - 7}
+            fill={isSelected ? '#f59e0b' : '#52525b'}
+            fontSize={11}
+            fontWeight={isSelected ? 600 : 400}
+            opacity={dimmed ? 0.2 : 1}
+            onClick={() => selectStop(isSelected ? null : stop.stopName)}
+            style={{ cursor: 'pointer' }}
+          >
+            {label}
+          </text>
+        );
+      })}
     </g>
   );
 }

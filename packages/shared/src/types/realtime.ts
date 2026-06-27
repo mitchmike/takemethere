@@ -30,4 +30,5 @@ export interface LivePosition {
   nextStopId: string | null;
   nextStopCanonicalX: number;   // canonicalX of next stop; -1 if unknown
   nextArrivalEpoch: number;     // absolute epoch of next arrival (incl. delay); 0 if unknown
+  directionId: number | null;   // GTFS direction_id: 0=outbound, 1=inbound, null=unknown
 }

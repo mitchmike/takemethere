@@ -41,8 +41,9 @@ function makeTrain(overrides: Partial<LivePosition> = {}): LivePosition {
     canonicalX: 0.3,
     delay: 0,
     nextStopId: '3',
-    nextStopCanonicalX: 0.5,  // forward (outbound)
+    nextStopCanonicalX: 0.5,
     nextArrivalEpoch: Date.now() / 1000 + 60,
+    directionId: 0,
     ...overrides,
   };
 }
@@ -162,9 +163,9 @@ describe('LineStrip', () => {
   });
 
   describe('direction filter', () => {
-    const outboundTrain = makeTrain({ tripId: 'out', canonicalX: 0.3, nextStopCanonicalX: 0.5 }); // forward
-    const inboundTrain  = makeTrain({ tripId: 'in',  canonicalX: 0.5, nextStopCanonicalX: 0.1 }); // backward
-    const unknownTrain  = makeTrain({ tripId: 'unk', canonicalX: 0.3, nextStopCanonicalX: -1  }); // no TU
+    const outboundTrain = makeTrain({ tripId: 'out', directionId: 0 }); // outbound
+    const inboundTrain  = makeTrain({ tripId: 'in',  directionId: 1 }); // inbound
+    const unknownTrain  = makeTrain({ tripId: 'unk', directionId: null }); // unknown
 
     function renderWithFilter(directionFilter: string) {
       mockLinesStore.mockImplementation((selector: any) =>
@@ -181,36 +182,36 @@ describe('LineStrip', () => {
       );
     }
 
+    // Each TrainDot renders 3 circles: background + 2 headlights
+    const CIRCLES_PER_TRAIN = 3;
+    const STOP_CIRCLES = 4;
+
     it('shows all trains when filter is "both"', () => {
       const { container } = renderWithFilter('both');
-      // 4 station dots + 3 train dots (each train dot is a group with a circle)
-      // Count only circles that are train dots (they are inside <g> groups inside the train g)
-      // Simpler: count the outer <g> groups that have train dots — each train = 1 TrainDot <g>
-      // Actually count all circles: 4 stops + 3 trains (each has 1 circle) = 7
       const circles = container.querySelectorAll('circle');
-      expect(circles).toHaveLength(4 + 3);
+      expect(circles).toHaveLength(STOP_CIRCLES + 3 * CIRCLES_PER_TRAIN);
     });
 
     it('shows only outbound trains when filter is "outbound"', () => {
       const { container } = renderWithFilter('outbound');
-      // 4 stop dots + outbound (1) + unknown (1) = 6 circles
+      // outbound (1) + unknown (1) = 2 trains
       const circles = container.querySelectorAll('circle');
-      expect(circles).toHaveLength(4 + 1 + 1); // outbound + unknown
+      expect(circles).toHaveLength(STOP_CIRCLES + 2 * CIRCLES_PER_TRAIN);
     });
 
     it('shows only inbound trains when filter is "inbound"', () => {
       const { container } = renderWithFilter('inbound');
-      // 4 stop dots + inbound (1) + unknown (1) = 6 circles
+      // inbound (1) + unknown (1) = 2 trains
       const circles = container.querySelectorAll('circle');
-      expect(circles).toHaveLength(4 + 1 + 1); // inbound + unknown
+      expect(circles).toHaveLength(STOP_CIRCLES + 2 * CIRCLES_PER_TRAIN);
     });
 
     it('trains with unknown direction appear in both inbound and outbound views', () => {
       const { container: outContainer } = renderWithFilter('outbound');
       const { container: inContainer }  = renderWithFilter('inbound');
-      // Both should have 6 circles (4 stops + 2 trains each)
-      expect(outContainer.querySelectorAll('circle').length).toBe(6);
-      expect(inContainer.querySelectorAll('circle').length).toBe(6);
+      const expected = STOP_CIRCLES + 2 * CIRCLES_PER_TRAIN;
+      expect(outContainer.querySelectorAll('circle').length).toBe(expected);
+      expect(inContainer.querySelectorAll('circle').length).toBe(expected);
     });
   });
 });

@@ -12,14 +12,37 @@ interface Props {
   movingForward: boolean | null;
 }
 
-// Train shape is drawn pointing RIGHT at rotation=0, centered at (0,0).
-// Body: x=-10 to x=6, y=-4 to y=4 (rx=2.5)
-// Nose (when direction known): triangle from x=6 to x=11, tapered
-const BODY_W = 16;
-const BODY_H = 8;
-const BODY_X = -10;
-const NOSE_BASE_X = 6;
-const NOSE_TIP_X = 11;
+const RADIUS = 12;
+
+// All geometry scales linearly with R. Values chosen to match the icon at R=15.
+const R = RADIUS;
+const s = R / 15; // scale factor — 1.0 at default size
+
+// Body
+const BW  = 7 * s;   // half-width
+const BY  = -10 * s; // top y
+const BH  = 14 * s;  // height
+const BRX = 3 * s;   // corner radius
+
+// Windscreen
+const WX  = 5 * s;   // half-width
+const WY  = -8 * s;  // top y
+const WH  = 5 * s;   // height
+
+// Door line
+const DY1 = -3 * s;
+const DY2 = 4 * s;
+
+// Lights
+const LCX = 3.5 * s;
+const LCY = 2 * s;
+const LR  = 1.1 * s;
+
+// Rails
+const RIX = 5 * s;  // inner x
+const RIY = 7 * s;  // inner y
+const ROX = 8 * s;  // outer x
+const ROY = 10 * s; // outer y
 
 export function TrainDot({ position, orientation, scaleX, stripY, lineColor, movingForward }: Props) {
   const gRef = useRef<SVGGElement>(null);
@@ -37,7 +60,7 @@ export function TrainDot({ position, orientation, scaleX, stripY, lineColor, mov
       && Math.abs(position.nextStopCanonicalX - position.canonicalX) > 0.002;
 
     if (hasNext) {
-      const nowEpoch = nowMs / 1000;
+      const nowEpoch = Date.now() / 1000;
       const elapsed  = nowEpoch - position.timestamp;
       const total    = position.nextArrivalEpoch - position.timestamp;
       if (total > 0 && elapsed > 0) {
@@ -55,80 +78,56 @@ export function TrainDot({ position, orientation, scaleX, stripY, lineColor, mov
 
     const coord = scaleX(smoothX.current);
 
-    let tx: number, ty: number, rotation: number;
+    let tx: number, ty: number;
     if (orientation === 'horizontal') {
       tx = coord; ty = stripY;
-      // 0° = pointing right (outbound), 180° = pointing left (inbound)
-      rotation = movingForward === false ? 180 : 0;
     } else {
       tx = stripY; ty = coord;
-      // 90° = pointing down (outbound), 270° = pointing up (inbound)
-      rotation = movingForward === false ? 270 : 90;
     }
 
-    gRef.current.setAttribute('transform', `translate(${tx},${ty}) rotate(${rotation})`);
+    gRef.current.setAttribute('transform', `translate(${tx},${ty})`);
   });
 
   if (position.canonicalX < 0) return null;
 
-  const isSelected  = selectedTripId === position.tripId;
+  const isSelected   = selectedTripId === position.tripId;
   const hasSelection = selectedTripId !== null;
-  const strokeColor  = isSelected ? '#ffcc00' : '#fff';
-  const strokeWidth  = isSelected ? 2 : 1.5;
   const opacity      = hasSelection && !isSelected ? 0.25 : 1;
 
   return (
-    <g
-      ref={gRef}
-      opacity={opacity}
-      style={{ cursor: 'pointer' }}
-      onClick={() => selectTrip(isSelected ? null : position.tripId)}
-    >
-      {/* Transparent hit area */}
-      <circle r={14} fill="transparent" />
+      <g
+          ref={gRef}
+          opacity={opacity}
+          style={{ cursor: 'pointer' }}
+          onClick={() => selectTrip(isSelected ? null : position.tripId)}
+      >
+        {/* Selection ring */}
+        {isSelected && (
+            <circle r={R + 4 * s} fill="none" stroke="#ffcc00" strokeWidth={2.5 * s} opacity={0.75} />
+        )}
 
-      {/* Selection glow */}
-      {isSelected && (
-        <rect
-          x={BODY_X - 3} y={-(BODY_H / 2) - 3}
-          width={BODY_W + 6} height={BODY_H + 6}
-          rx={4}
-          fill="none"
-          stroke="#ffcc00"
-          strokeWidth={2}
-          opacity={0.5}
-        />
-      )}
+        {/* Background */}
+        <circle r={R} fill={lineColor} stroke="white" strokeWidth={1.5 * s} />
 
-      {/* Train body */}
-      <rect
-        x={BODY_X} y={-(BODY_H / 2)}
-        width={BODY_W} height={BODY_H}
-        rx={2.5}
-        fill={lineColor}
-        stroke={strokeColor}
-        strokeWidth={strokeWidth}
-      />
+        {/* Train body */}
+        <rect x={-BW} y={BY} width={BW * 2} height={BH} rx={BRX} fill="white" />
 
-      {/* Window strip */}
-      <rect
-        x={BODY_X + 3} y={-(BODY_H / 2) + 2}
-        width={BODY_W - 7} height={BODY_H - 4}
-        rx={1}
-        fill="white"
-        opacity={0.25}
-      />
+        {/* Windscreen */}
+        <rect x={-WX} y={WY} width={WX * 2} height={WH} rx={1.5 * s} fill={lineColor} opacity={0.95} />
 
-      {/* Nose — only when direction is known */}
-      {movingForward !== null && (
-        <polygon
-          points={`${NOSE_BASE_X},${-(BODY_H / 2)} ${NOSE_TIP_X},0 ${NOSE_BASE_X},${BODY_H / 2}`}
-          fill={lineColor}
-          stroke={strokeColor}
-          strokeWidth={strokeWidth}
-          strokeLinejoin="round"
-        />
-      )}
-    </g>
+        {/* Door */}
+        <line x1={0} y1={DY1} x2={0} y2={DY2} stroke={lineColor} strokeWidth={1.2 * s} />
+
+        {/* Lights */}
+        <circle cx={-LCX} cy={LCY} r={LR} fill={lineColor} />
+        <circle cx={LCX}  cy={LCY} r={LR} fill={lineColor} />
+
+        {/* Coupler */}
+        <line x1={0} y1={DY2} x2={0} y2={DY2 + 2 * s} stroke="white" strokeWidth={1.5 * s} strokeLinecap="round" />
+
+        {/* Rails */}
+        <line x1={-RIX} y1={RIY} x2={-ROX} y2={ROY} stroke="white" strokeWidth={1.4 * s} strokeLinecap="round" />
+        <line x1={RIX}  y1={RIY} x2={ROX}  y2={ROY} stroke="white" strokeWidth={1.4 * s} strokeLinecap="round" />
+      </g>
   );
 }
