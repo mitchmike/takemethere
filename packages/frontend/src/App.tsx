@@ -14,9 +14,9 @@ export default function App() {
   }, [setLines]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       <Header />
-      <main style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
+      <main style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}>
         <LineMap />
       </main>
     </div>

@@ -4,3 +4,4 @@ export * from './types/api.js';
 export * from './constants/lines.js';
 export * from './utils/interpolation.js';
 export * from './utils/stationOrder.js';
+export * from './utils/gpsProjection.js';

@@ -36,6 +36,8 @@ export interface LineStationEntry {
   stopName: string;
   canonicalPosition: number;
   canonicalX: number;
+  stopLat: number;
+  stopLon: number;
 }
 
 export interface LineDefinition {

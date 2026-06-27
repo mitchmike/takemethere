@@ -6,12 +6,13 @@ export function Header() {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
-      padding: '12px 20px',
-      background: '#1a1a1a',
-      borderBottom: '1px solid #333',
+      padding: '12px 24px',
+      background: '#fff',
+      borderBottom: '1px solid #e4e4e7',
       flexShrink: 0,
+      boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
     }}>
-      <span style={{ fontWeight: 700, fontSize: '1.2rem', letterSpacing: '0.05em' }}>
+      <span style={{ fontWeight: 700, fontSize: '1rem', letterSpacing: '0.02em', color: '#18181b' }}>
         TakeMeThere
       </span>
       <LiveClock />

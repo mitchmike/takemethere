@@ -16,14 +16,18 @@ export enum VehicleStopStatus {
   IN_TRANSIT_TO = 2,
 }
 
+/** Server-computed position combining VP (GPS) and TU (schedule/delay) feeds. */
 export interface LivePosition {
   tripId: string;
   lineId: string;
-  stopSequenceBefore: number;
-  stopSequenceAfter: number;
-  fraction: number;
-  lastGtfsTimestamp: number;
-  lastGtfsFraction: number;
-  scheduledDepartureEpoch: number;
-  scheduledArrivalEpoch: number;
+  lat: number;
+  lon: number;
+  bearing: number | null;
+  timestamp: number;            // epoch seconds when GPS was captured
+  canonicalX: number;           // GPS-projected position [0,1]; -1 if unmappable
+  // Dead-reckoning fields from trip update (0 / null if no TU match)
+  delay: number;                // seconds late (positive = late)
+  nextStopId: string | null;
+  nextStopCanonicalX: number;   // canonicalX of next stop; -1 if unknown
+  nextArrivalEpoch: number;     // absolute epoch of next arrival (incl. delay); 0 if unknown
 }

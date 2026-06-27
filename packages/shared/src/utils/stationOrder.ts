@@ -47,10 +47,11 @@ export function computeAlignedPositions(
     if (stops.length > maxStops) { maxStops = stops.length; refLineId = lineId; }
   }
 
-  // Assign reference positions
+  // Assign reference positions — keyed by stopName so shared physical
+  // stations align even when each line has a different platform stop_id
   const refStops = byLine.get(refLineId)!;
-  const refPositions = new Map<string, number>();
-  refStops.forEach((s, i) => refPositions.set(s.stopId, i));
+  const refPositions = new Map<string, number>(); // stopName → position
+  refStops.forEach((s, i) => refPositions.set(s.stopName, i));
 
   // Build raw positions for every line
   const rawPositions = new Map<string, Map<string, number>>();
@@ -64,8 +65,8 @@ export function computeAlignedPositions(
       // Find anchors: stops that appear in the reference line
       const anchors: Array<{ idx: number; stopId: string; refPos: number }> = [];
       stops.forEach((s, idx) => {
-        if (refPositions.has(s.stopId)) {
-          anchors.push({ idx, stopId: s.stopId, refPos: refPositions.get(s.stopId)! });
+        if (refPositions.has(s.stopName)) {
+          anchors.push({ idx, stopId: s.stopId, refPos: refPositions.get(s.stopName)! });
         }
       });
 

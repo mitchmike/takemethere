@@ -6,10 +6,15 @@
 
 :root {
   font-family: system-ui, -apple-system, sans-serif;
-  background: #0f0f0f;
-  color: #f0f0f0;
+  background: #f4f4f5;
+  color: #18181b;
+  -webkit-font-smoothing: antialiased;
 }
 
 body {
   min-height: 100vh;
+}
+
+button {
+  font-family: inherit;
 }

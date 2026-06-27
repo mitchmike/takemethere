@@ -6,6 +6,7 @@ const schema = z.object({
   PTV_API_KEY: z.string().min(1),
   PTV_GTFS_URL: z.string().url().default('https://data.ptv.vic.gov.au/downloads/gtfs.zip'),
   PTV_GTFS_RT_URL: z.string().url(),
+  PTV_GTFS_RT_TU_URL: z.string().url().default('https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/metro/trip-updates'),
   GTFS_RT_ENABLED: z.string().default('false').transform(v => v === 'true'),
   GTFS_RT_POLL_INTERVAL_MS: z.coerce.number().default(30_000),
   PORT: z.coerce.number().default(3001),
