@@ -31,6 +31,27 @@ All file edits and writes are pre-approved for this repo. No need to confirm bef
 ### Integration testing (planned)
 The app ingests live GTFS-RT feeds. Integration tests should cover the data pipeline end-to-end against real or recorded feed snapshots. Set this up once the ingestion layer is built — record feed payloads as fixtures so tests are deterministic.
 
-## Stack (TBD — update as decisions are made)
+## Stack
 
-_To be filled in as the project takes shape_
+| Layer | Choice |
+|---|---|
+| Runtime | Node.js + pnpm |
+| Monorepo | pnpm workspaces (`packages/shared`, `packages/backend`, `packages/frontend`) |
+| Backend | Fastify + TypeScript |
+| WebSockets | Socket.io |
+| Cache | Redis |
+| Database | PostgreSQL + PostGIS |
+| Frontend | React + TypeScript + Vite |
+| State | Zustand |
+| Rendering | SVG (switch to Canvas if perf demands) |
+| Animation | requestAnimationFrame + linear interpolation |
+| Tests | Vitest (co-located with source) |
+
+## Dev setup
+
+```bash
+docker compose up -d          # postgres+postgis, redis
+pnpm install
+pnpm tsx scripts/load-gtfs.ts # load PTV GTFS static data
+pnpm dev                      # start backend + frontend concurrently
+```
