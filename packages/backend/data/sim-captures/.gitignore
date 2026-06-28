@@ -1,0 +1,4 @@
+# Ignore captured session files — they're large and environment-specific.
+# Committed example sessions live in data/sim-captures/examples/ (if any).
+*.jsonl
+!.gitkeep

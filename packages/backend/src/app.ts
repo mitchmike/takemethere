@@ -9,6 +9,7 @@ import { healthRoutes } from './routes/health.js';
 import { linesRoutes } from './routes/lines.js';
 import { tripsRoutes } from './routes/trips.js';
 import { adminRoutes } from './routes/admin.js';
+import { simRoutes } from './routes/sim.js';
 import { startPoller, stopPoller } from './gtfs-rt/poller.js';
 import { startStreamer, stopStreamer } from './gtfs-rt/streamer.js';
 import { setRouteLineMap, setLineStopCoords, setGlobalStopNames, setTripDirections, setPool, setDwellStats } from './gtfs-rt/publisher.js';
@@ -66,6 +67,7 @@ export async function buildApp() {
   await fastify.register(linesRoutes);
   await fastify.register(tripsRoutes);
   await fastify.register(adminRoutes, { io });
+  await fastify.register(simRoutes);
 
   fastify.addHook('onReady', async () => {
     try {
