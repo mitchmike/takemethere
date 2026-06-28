@@ -401,6 +401,143 @@ describe('LineStrip', () => {
     });
   });
 
+  describe('times y follows stopY (req 2)', () => {
+    it('time text for a shared stop renders below sharedStopY, not lineY', () => {
+      const sharedY = 120;
+      const positions = new Map([
+        ['t1', {
+          tripId: 't1', lineId: 'belgrave', lat: -37.85, lon: 145.1, bearing: 90,
+          timestamp: Date.now() / 1000 - 10, canonicalX: 0.3, delay: 0, directionId: 0,
+          prevStopId: '2', prevStopName: 'Richmond Station', prevStopCanonicalX: 0.1,
+          nextStopId: '3', nextStopName: 'Camberwell Station', nextStopCanonicalX: 0.5,
+          scheduledNextArrivalEpoch: 0, nextArrivalEpoch: Date.now() / 1000 + 60,
+          predictedNextArrivalEpoch: Date.now() / 1000 + 60, segmentSpeedKmh: null,
+          upcomingStops: [{
+            stopId: '3', stopName: 'Camberwell Station', canonicalX: 0.5,
+            scheduledArrivalEpoch: Date.now() / 1000 + 120,
+            adjustedArrivalEpoch: Date.now() / 1000 + 120,
+            predictedArrivalEpoch: Date.now() / 1000 + 120,
+            tuDelaySeconds: 0,
+          }],
+        }],
+      ]);
+
+      const VIEWPORT = { center: 0.5, windowHalf: 0.4 };
+      const { container } = render(
+        <svg>
+          <LineStrip
+            {...BASE_PROPS}
+            orientation="horizontal"
+            showTimes={true}
+            viewport={VIEWPORT}
+            allPositions={positions as any}
+            isFocusLine={true}
+            sharedStopNames={new Set(['camberwell'])}
+            sharedStopY={sharedY}
+          />
+        </svg>
+      );
+
+      const TIMES_Y_OFFSET = 18;
+      const expectedMinY = sharedY + TIMES_Y_OFFSET;
+      const texts = Array.from(container.querySelectorAll('text'));
+      const timeText = texts.find(t => /\d{2}:\d{2}/.test(t.textContent ?? ''));
+      expect(timeText).toBeTruthy();
+      const y = parseFloat(timeText!.getAttribute('y')!);
+      // sharedY (120) > lineY (78), so times at sharedY produce larger y than times at lineY
+      expect(y).toBeGreaterThanOrEqual(expectedMinY - 1); // anchored to sharedY
+      expect(y).toBeGreaterThan(lineY + TIMES_Y_OFFSET);  // NOT anchored to lineY
+    });
+  });
+
+  describe('single-line times (req 4) — priorityTripId', () => {
+    it('shows times for focus trip even when its lineId does not match the strip lineId', () => {
+      const VIEWPORT = { center: 0.5, windowHalf: 0.4 };
+      const mismatchedLineId = 'backend-belgrave-99'; // differs from strip lineId 'belgrave'
+      const positions = new Map([
+        ['sel', {
+          tripId: 'sel', lineId: mismatchedLineId,
+          lat: -37.85, lon: 145.1, bearing: 90,
+          timestamp: Date.now() / 1000 - 10, canonicalX: 0.3, delay: 0, directionId: 0,
+          prevStopId: '2', prevStopName: 'Richmond Station', prevStopCanonicalX: 0.1,
+          nextStopId: '3', nextStopName: 'Camberwell Station', nextStopCanonicalX: 0.5,
+          scheduledNextArrivalEpoch: 0, nextArrivalEpoch: Date.now() / 1000 + 60,
+          predictedNextArrivalEpoch: Date.now() / 1000 + 60, segmentSpeedKmh: null,
+          upcomingStops: [{
+            stopId: '3', stopName: 'Camberwell Station', canonicalX: 0.5,
+            scheduledArrivalEpoch: Date.now() / 1000 + 120,
+            adjustedArrivalEpoch: Date.now() / 1000 + 120,
+            predictedArrivalEpoch: Date.now() / 1000 + 120,
+            tuDelaySeconds: 0,
+          }],
+        }],
+      ]);
+
+      const { container } = render(
+        <svg>
+          <LineStrip
+            {...BASE_PROPS}
+            orientation="horizontal"
+            showTimes={true}
+            viewport={VIEWPORT}
+            allPositions={positions as any}
+            selectedTripId="sel"
+            isFocusLine={true}
+            focusStopNames={null}
+          />
+        </svg>
+      );
+      const texts = Array.from(container.querySelectorAll('text')).map(t => t.textContent ?? '');
+      expect(texts.some(t => /\d{2}:\d{2}/.test(t))).toBe(true);
+    });
+  });
+
+  describe('vertical times', () => {
+    it('renders times in vertical mode when showTimes is true', () => {
+      const VIEWPORT = { center: 0.5, windowHalf: 0.4 };
+      const positions = new Map([
+        ['t1', {
+          tripId: 't1', lineId: 'belgrave', lat: -37.85, lon: 145.1, bearing: 90,
+          timestamp: Date.now() / 1000 - 10, canonicalX: 0.3, delay: 0, directionId: 0,
+          prevStopId: '2', prevStopName: 'Richmond Station', prevStopCanonicalX: 0.1,
+          nextStopId: '3', nextStopName: 'Camberwell Station', nextStopCanonicalX: 0.5,
+          scheduledNextArrivalEpoch: 0, nextArrivalEpoch: Date.now() / 1000 + 60,
+          predictedNextArrivalEpoch: Date.now() / 1000 + 60, segmentSpeedKmh: null,
+          upcomingStops: [{
+            stopId: '3', stopName: 'Camberwell Station', canonicalX: 0.5,
+            scheduledArrivalEpoch: Date.now() / 1000 + 120,
+            adjustedArrivalEpoch: Date.now() / 1000 + 120,
+            predictedArrivalEpoch: Date.now() / 1000 + 120,
+            tuDelaySeconds: 0,
+          }],
+        }],
+      ]);
+
+      const { container } = render(
+        <svg>
+          <LineStrip
+            {...BASE_PROPS}
+            orientation="vertical"
+            showTimes={true}
+            viewport={VIEWPORT}
+            allPositions={positions as any}
+            selectedTripId="t1"
+          />
+        </svg>
+      );
+      const texts = Array.from(container.querySelectorAll('text')).map(t => t.textContent ?? '');
+      expect(texts.some(t => /\d{2}:\d{2}/.test(t))).toBe(true);
+    });
+
+    it('does not render times in vertical mode when showTimes is false', () => {
+      const { container } = render(
+        <svg><LineStrip {...BASE_PROPS} orientation="vertical" showTimes={false} /></svg>
+      );
+      const texts = Array.from(container.querySelectorAll('text')).map(t => t.textContent ?? '');
+      expect(texts.every(t => !/\d{2}:\d{2}/.test(t))).toBe(true);
+    });
+  });
+
   describe('orientation invariants', () => {
     it('horizontal and vertical render the same number of station dots', () => {
       const { container: h } = render(<svg><LineStrip {...BASE_PROPS} orientation="horizontal" /></svg>);

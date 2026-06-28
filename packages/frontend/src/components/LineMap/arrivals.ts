@@ -20,6 +20,7 @@ export function getArrivalsForStop(
   lineId: string,
   directionFilter: 'inbound' | 'outbound' | 'both',
   nowSec: number,
+  priorityTripId?: string | null,
 ): ArrivalTime[] {
   const norm = normName(stopName);
   const results: ArrivalTime[] = [];
@@ -38,6 +39,31 @@ export function getArrivalsForStop(
         adjustedArrivalEpoch: u.adjustedArrivalEpoch,
         predictedArrivalEpoch: u.predictedArrivalEpoch,
       });
+    }
+  }
+
+  // Always include the selected (priority) trip even if its lineId differs from the strip's lineId.
+  // Guards against lineId format mismatches between the position feed and line definitions.
+  if (priorityTripId && !results.some(r => r.tripId === priorityTripId)) {
+    const pos = allPositions.get(priorityTripId);
+    if (pos) {
+      if (
+        (directionFilter === 'both') ||
+        (directionFilter === 'outbound' && pos.directionId === 0) ||
+        (directionFilter === 'inbound'  && pos.directionId === 1)
+      ) {
+        const u = pos.upcomingStops.find(s =>
+          s.stopId === stopId || normName(s.stopName) === norm,
+        );
+        if (u && u.adjustedArrivalEpoch > nowSec) {
+          results.push({
+            tripId: priorityTripId,
+            directionId: pos.directionId,
+            adjustedArrivalEpoch: u.adjustedArrivalEpoch,
+            predictedArrivalEpoch: u.predictedArrivalEpoch,
+          });
+        }
+      }
     }
   }
 

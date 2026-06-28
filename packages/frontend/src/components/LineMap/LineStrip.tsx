@@ -140,6 +140,26 @@ export function LineStrip({
             </text>
           );
         })}
+        {showTimes && stops.map((stop, i) => {
+          if (!showLabel[i]) return null;
+          const cy = scaleY(stop.canonicalX);
+          const arrivals = getArrivalsForStop(
+            stop.stopId, stop.stopName, allPositions,
+            line.lineId, directionFilter, nowSec,
+            selectedTripId,
+          );
+          if (!arrivals.length) return null;
+          const arr = arrivals[0];
+          const isSelTrain = arr.tripId === selectedTripId;
+          return (
+            <text key={`vtimes-${stop.stopId}`}
+              x={stripX + DOT_RADIUS + 5} y={cy + 12}
+              fill={isSelTrain ? line.color : '#71717a'}
+              fontSize={9} fontWeight={isSelTrain ? 700 : 400}>
+              {melbTime(arr.adjustedArrivalEpoch)}
+            </text>
+          );
+        })}
       </g>
     );
   }
@@ -284,6 +304,7 @@ export function LineStrip({
         const arrivals = getArrivalsForStop(
           stop.stopId, stop.stopName, allPositions,
           line.lineId, directionFilter, nowSec,
+          isFocusLine ? selectedTripId : null,
         );
         if (!arrivals.length) return null;
 
@@ -297,7 +318,7 @@ export function LineStrip({
                 ? arr.predictedArrivalEpoch - arr.adjustedArrivalEpoch
                 : 0;
               const deltaStr    = formatDelta(delta);
-              const y           = lineY + TIMES_Y_OFFSET + i * TIMES_ROW_H;
+              const y           = stopY(stop.stopName) + TIMES_Y_OFFSET + i * TIMES_ROW_H;
               const mainColor   = isSelTrain ? line.color : '#71717a';
               return (
                 <text key={arr.tripId} x={cx} y={y}

@@ -108,6 +108,45 @@ describe('getArrivalsForStop', () => {
     expect(result).toHaveLength(0);
   });
 
+  describe('priorityTripId — include selected train regardless of lineId mismatch', () => {
+    it('includes priority trip even when its lineId differs from the strip lineId', () => {
+      const pos = makePos({
+        tripId: 'sel', lineId: 'backend-alamein-42', // differs from strip lineId 'belgrave'
+        upcomingStops: [makeUpcomingStop('S1', 'Camberwell Station', NOW + 60)],
+      });
+      const result = getArrivalsForStop('S1', 'Camberwell Station', new Map([['sel', pos]]), 'belgrave', 'both', NOW, 'sel');
+      expect(result).toHaveLength(1);
+      expect(result[0].tripId).toBe('sel');
+    });
+
+    it('does not duplicate if priority trip already matched by lineId', () => {
+      const pos = makePos({
+        tripId: 'sel', lineId: 'belgrave',
+        upcomingStops: [makeUpcomingStop('S1', 'Camberwell Station', NOW + 60)],
+      });
+      const result = getArrivalsForStop('S1', 'Camberwell Station', new Map([['sel', pos]]), 'belgrave', 'both', NOW, 'sel');
+      expect(result).toHaveLength(1);
+    });
+
+    it('respects directionFilter for priority trip', () => {
+      const pos = makePos({
+        tripId: 'sel', lineId: 'other', directionId: 1, // inbound
+        upcomingStops: [makeUpcomingStop('S1', 'Camberwell Station', NOW + 60)],
+      });
+      const result = getArrivalsForStop('S1', 'Camberwell Station', new Map([['sel', pos]]), 'belgrave', 'outbound', NOW, 'sel');
+      expect(result).toHaveLength(0);
+    });
+
+    it('does not include priority trip when upcoming stop is in the past', () => {
+      const pos = makePos({
+        tripId: 'sel', lineId: 'other',
+        upcomingStops: [makeUpcomingStop('S1', 'Camberwell Station', NOW - 30)],
+      });
+      const result = getArrivalsForStop('S1', 'Camberwell Station', new Map([['sel', pos]]), 'belgrave', 'both', NOW, 'sel');
+      expect(result).toHaveLength(0);
+    });
+  });
+
   it('includes predictedArrivalEpoch in results', () => {
     const pos = makePos({
       tripId: 't1',

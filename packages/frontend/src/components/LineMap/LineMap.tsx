@@ -115,7 +115,7 @@ export function LineMap() {
   // their canonicalX range overlaps (e.g. Frankston near East Camberwell).
   const visibleLines = useMemo(() => {
     let selected = lines.filter(l => selectedLineIds.has(l.lineId));
-    if (viewport && focusStopNames) {
+    if (orientation !== 'vertical' && viewport && focusStopNames) {
       selected = filterLinesByViewport(selected, viewport, focusStopNames);
     }
     return selected.sort((a, b) => {
@@ -123,7 +123,7 @@ export function LineMap() {
       const rb = REGION_ORDER.indexOf(LINE_MAP.get(b.lineId)?.region as any);
       return (ra === -1 ? 99 : ra) - (rb === -1 ? 99 : rb);
     });
-  }, [lines, selectedLineIds, viewport, focusStopNames]);
+  }, [lines, selectedLineIds, viewport, focusStopNames, orientation]);
 
   // Stop names that appear on 2+ visible lines within the viewport.
   // In the zoomed view these are rendered once as shared labels (not once per line strip).
@@ -236,9 +236,9 @@ export function LineMap() {
                 selectedTripId={selectedTripId}
                 showTimes={showTimes}
                 focusStopNames={focusStopNames}
-                sharedStopNames={sharedStopNames}
+                sharedStopNames={isVertical ? null : sharedStopNames}
                 isFocusLine={line.lineId === focusLineId}
-                sharedStopY={getSharedStopY(i)}
+                sharedStopY={isVertical ? null : getSharedStopY(i)}
               />
             );
           })}
@@ -250,8 +250,8 @@ export function LineMap() {
             const viewMax = viewport.center + viewport.windowHalf;
             const scaleX  = (cx: number) =>
               LEFT_MARGIN + ((cx - viewMin) / (viewMax - viewMin)) * usableWidth;
-            // Place the label above the convergence point (or above the top strip if only 1 line)
-            const labelY = sharedStopMidY !== null ? sharedStopMidY - 10 : 16;
+            // Place the label above the topmost strip's lineY (yOffset = lineY for strip 0)
+            const labelY = yOffset - 16;
 
             // Collect unique shared stops (by norm name) from the first line that contains each
             const norm = (n: string) => n.replace(/ Station$/, '').toLowerCase().trim();
