@@ -131,7 +131,7 @@ function LiveDisplay({ position, lineColor, line }: LiveDisplayProps) {
   const nextStopEntry = line?.stops.find(s => s.stopName === (stream?.nextStopName ?? position.nextStopName));
   let distFromPrevM: number | null = null;
   let distToNextM:   number | null = null;
-  if (prevStopEntry && nextStopEntry && nextStopCanonicalX > prevStopCanonicalX + 0.002) {
+  if (prevStopEntry && nextStopEntry && Math.abs(nextStopCanonicalX - prevStopCanonicalX) > 0.002) {
     const segDistM  = haversineM(prevStopEntry.stopLat, prevStopEntry.stopLon, nextStopEntry.stopLat, nextStopEntry.stopLon);
     const segFrac   = (cx - prevStopCanonicalX) / (nextStopCanonicalX - prevStopCanonicalX);
     const clampFrac = Math.max(0, Math.min(1, segFrac));
