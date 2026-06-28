@@ -6,3 +6,4 @@ dist/
 .idea/*
 !.idea/runConfigurations/
 !.idea/runConfigurations/**
+packages/frontend/test-results/
