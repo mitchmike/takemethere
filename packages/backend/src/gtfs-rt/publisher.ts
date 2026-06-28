@@ -350,6 +350,21 @@ export async function publishPositions(
 
     // Final fallback: GPS projection
     if (!seg.nextStop) seg = findSegmentStops(stops, canonicalX, forward);
+
+    // Trip-terminus override: if prevStop is the trip's last scheduled stop,
+    // discard any further next stop that TU or GPS suggests. This is authoritative
+    // over all other signals — GPS noise near terminus can flip the segment back.
+    if (seg.prevStop) {
+      const stopTimes = tripStopTimesCache.get(pos.tripId) ?? [];
+      if (stopTimes.length) {
+        const last = stopTimes[stopTimes.length - 1];
+        const lastGlobalName = globalStopNames.get(last.stopId);
+        const atTerminus = last.stopId === seg.prevStop.stopId
+          || (lastGlobalName != null && normalizeName(lastGlobalName) === normalizeName(seg.prevStop.stopName));
+        if (atTerminus) seg = { prevStop: seg.prevStop, nextStop: null };
+      }
+    }
+
     const { prevStop, nextStop } = seg;
 
     let delay = 0;
