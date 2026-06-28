@@ -54,8 +54,8 @@ interface Props {
   sharedStopNames: Set<string> | null;
   /** Whether this strip is the focus line (selected train's line) — bypasses focusStopNames filter for times */
   isFocusLine: boolean;
-  /** Y coordinate shared stops converge to when zoomed (null = unzoomed, use lineY everywhere) */
-  sharedStopMidY: number | null;
+  /** Y for shared stops on THIS strip when zoomed — closer to mid-y but still distinct (null = use lineY) */
+  sharedStopY: number | null;
 }
 
 function normStopName(name: string): string {
@@ -65,7 +65,7 @@ function normStopName(name: string): string {
 export function LineStrip({
   line, trains, allPositions, orientation, svgWidth, svgHeight,
   stripIndex, stripHeight, viewport, selectedTripId, showTimes, focusStopNames, sharedStopNames,
-  isFocusLine, sharedStopMidY,
+  isFocusLine, sharedStopY,
 }: Props) {
   const selectedStopName = useUiStore(s => s.selectedStopName);
   const selectStop       = useUiStore(s => s.actions.selectStop);
@@ -167,9 +167,9 @@ export function LineStrip({
   const x1 = scaleX(Math.max(lineMinCx, viewMin));
   const x2 = scaleX(Math.min(lineMaxCx, viewMax));
 
-  // stopY: shared stops converge to the mid-y across all strips when zoomed; others stay at lineY.
+  // stopY: shared stops move to this strip's closer-to-centre y when zoomed; non-shared stay at lineY.
   const stopY = (name: string): number => {
-    if (sharedStopMidY !== null && sharedStopNames?.has(normStopName(name))) return sharedStopMidY;
+    if (sharedStopY !== null && sharedStopNames?.has(normStopName(name))) return sharedStopY;
     return lineY;
   };
 
@@ -184,23 +184,19 @@ export function LineStrip({
   });
 
   // Build stepped polyline for the rail.
-  // Edge y matches the nearest visible stop so the line doesn't branch back to lineY at the
-  // viewport boundary when shared stops extend all the way to the edge.
+  // Edges are always at lineY so the step happens exactly AT the shared stop's x — not before it.
+  // Segments are horizontal or vertical only (no diagonals).
   const railPoints = (() => {
     const visible = stops
       .filter(s => isInView(s.canonicalX))
       .map(s => ({ x: scaleX(s.canonicalX), y: stopY(s.stopName) }));
 
-    if (visible.length === 0) return `${x1},${lineY} ${x2},${lineY}`;
-
     const all = [
-      { x: x1, y: visible[0].y },
+      { x: x1, y: lineY },
       ...visible,
-      { x: x2, y: visible[visible.length - 1].y },
+      { x: x2, y: lineY },
     ];
 
-    // Stepped: before each y-change, insert an intermediate point at (nextX, prevY)
-    // so segments are always horizontal or vertical, never diagonal.
     const pts: string[] = [`${all[0].x},${all[0].y}`];
     for (let i = 1; i < all.length; i++) {
       const prev = all[i - 1];
@@ -240,10 +236,10 @@ export function LineStrip({
         );
       })}
 
-      {/* Trains */}
+      {/* Trains — y follows the rail segment the train is on (prev stop's y) */}
       {visibleTrains.map(train => (
         <TrainDot key={train.tripId} position={train} orientation="horizontal"
-          scaleX={scaleX} stripY={lineY} lineColor={line.color} movingForward={movingForward(train)} />
+          scaleX={scaleX} stripY={stopY(train.prevStopName)} lineColor={line.color} movingForward={movingForward(train)} />
       ))}
 
       {/* Station labels — larger when zoomed; suppressed for shared stops (LineMap renders once) */}

@@ -162,12 +162,23 @@ export function LineMap() {
   const showTimes   = viewport !== null;
   const stripHeight = showTimes ? STRIP_HEIGHT_WITH_TIMES : STRIP_HEIGHT;
 
-  // Y coordinate where shared stops converge when zoomed (midpoint between first and last strip)
+  // How far each strip moves toward the centre at shared stops — keeps lines distinct but closer.
+  const SHARE_FACTOR = 0.6;
+
+  // Midpoint y between all strips — used for the shared-stop label position.
   const sharedStopMidY = useMemo<number | null>(() => {
     if (!viewport || visibleLines.length < 2) return null;
     const yOffset = showTimes ? 65 : Math.round(stripHeight * 0.78);
     return ((visibleLines.length - 1) * stripHeight) / 2 + yOffset;
   }, [viewport, visibleLines.length, stripHeight, showTimes]);
+
+  // Per-strip sharedStopY: each strip's shared-stop y, pulled SHARE_FACTOR toward the midpoint.
+  const yOffset = showTimes ? 65 : Math.round(stripHeight * 0.78);
+  const getSharedStopY = (i: number): number | null => {
+    if (sharedStopMidY === null) return null;
+    const lineYi = i * stripHeight + yOffset;
+    return lineYi + SHARE_FACTOR * (sharedStopMidY - lineYi);
+  };
 
   const computedSvgWidth  = isVertical ? visibleLines.length * VERT_STRIP_WIDTH + 8 : svgWidth;
   const computedSvgHeight = isVertical ? VERT_SVG_HEIGHT : visibleLines.length * stripHeight + 24;
@@ -227,7 +238,7 @@ export function LineMap() {
                 focusStopNames={focusStopNames}
                 sharedStopNames={sharedStopNames}
                 isFocusLine={line.lineId === focusLineId}
-                sharedStopMidY={sharedStopMidY}
+                sharedStopY={getSharedStopY(i)}
               />
             );
           })}

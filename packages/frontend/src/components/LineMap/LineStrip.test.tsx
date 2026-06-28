@@ -60,7 +60,7 @@ const BASE_PROPS = {
   focusStopNames: null,
   sharedStopNames: null,
   isFocusLine: false,
-  sharedStopMidY: null,
+  sharedStopY: null,
 };
 
 describe('LineStrip', () => {
@@ -162,7 +162,7 @@ describe('LineStrip', () => {
     const VIEWPORT = { center: 0.5, windowHalf: 0.4 };
     const shared = new Set(['camberwell']);
 
-    it('polyline y at shared stop equals sharedStopMidY', () => {
+    it('polyline y at shared stop equals sharedStopY', () => {
       const { container } = render(
         <svg>
           <LineStrip
@@ -170,7 +170,7 @@ describe('LineStrip', () => {
             orientation="horizontal"
             viewport={VIEWPORT}
             sharedStopNames={shared}
-            sharedStopMidY={120}
+            sharedStopY={120}
           />
         </svg>
       );
@@ -182,7 +182,7 @@ describe('LineStrip', () => {
       // Camberwell is at canonicalX=0.5 — inside viewport — should be at y=120
       const camberwellX = LEFT_MARGIN + ((0.5 - 0.1) / 0.8) * (800 - LEFT_MARGIN - RIGHT_PADDING);
       // Stepped rail inserts two points at each y-change: (x, prevY) then (x, newY).
-      // We want to confirm there IS a point at camberwellX with y=120 (the sharedStopMidY).
+      // We want to confirm there IS a point at camberwellX with y=120 (the sharedStopY).
       const sharedPt = pts.find(p => Math.abs(p.x - camberwellX) < 1 && p.y === 120);
       expect(sharedPt).toBeTruthy();
     });
@@ -196,7 +196,7 @@ describe('LineStrip', () => {
             orientation="horizontal"
             viewport={VIEWPORT}
             sharedStopNames={shared}
-            sharedStopMidY={120}
+            sharedStopY={120}
           />
         </svg>
       );
