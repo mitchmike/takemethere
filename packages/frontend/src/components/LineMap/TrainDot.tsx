@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, type ReactNode } from 'react';
 import type { LivePosition } from '@takemethere/shared';
 import { useUiStore } from '../../store/uiStore.js';
 import { useTrainsStore } from '../../store/trainsStore.js';
@@ -80,18 +80,23 @@ export function TrainDot({ position, orientation, scaleX, stripY, lineColor, mov
   const hasSelection = selectedTripId !== null;
   const opacity      = hasSelection && !isSelected ? 0.25 : 1;
 
-  // Icon is drawn pointing "up" (windscreen at negative y = front of train).
-  // Rotate so the front faces the direction of travel:
-  //   horizontal outbound → rotate  90° (faces right)
-  //   horizontal inbound  → rotate -90° (faces left)
-  //   vertical   outbound → rotate 180° (faces down, increasing canonicalX)
-  //   vertical   inbound  → no rotation (faces up)
-  let iconRotation = 0;
+  // Small filled triangle on the leading edge of the circle to show direction.
+  // AP = arrow point (tip), AB = arrow base offset from circle edge.
+  const AP = R + 5 * s;  // tip distance from centre
+  const AB = R - 1 * s;  // base distance from centre
+  const AH = 4 * s;      // half-height of arrow base
+
+  let directionArrow: ReactNode = null;
   if (orientation === 'horizontal') {
-    if (movingForward === true)  iconRotation =  90;
-    if (movingForward === false) iconRotation = -90;
+    if (movingForward === true)
+      directionArrow = <polygon points={`${AP},0 ${AB},-${AH} ${AB},${AH}`} fill="white" opacity={0.9} />;
+    else if (movingForward === false)
+      directionArrow = <polygon points={`-${AP},0 -${AB},-${AH} -${AB},${AH}`} fill="white" opacity={0.9} />;
   } else {
-    if (movingForward === true)  iconRotation = 180;
+    if (movingForward === true)
+      directionArrow = <polygon points={`0,${AP} -${AH},${AB} ${AH},${AB}`} fill="white" opacity={0.9} />;
+    else if (movingForward === false)
+      directionArrow = <polygon points={`0,-${AP} -${AH},-${AB} ${AH},-${AB}`} fill="white" opacity={0.9} />;
   }
 
   return (
@@ -109,28 +114,28 @@ export function TrainDot({ position, orientation, scaleX, stripY, lineColor, mov
         {/* Background */}
         <circle r={R} fill={lineColor} stroke="white" strokeWidth={1.5 * s} />
 
-        {/* Icon rotated to face direction of travel */}
-        <g transform={`rotate(${iconRotation})`}>
-          {/* Train body */}
-          <rect x={-BW} y={BY} width={BW * 2} height={BH} rx={BRX} fill="white" />
+        {/* Train body */}
+        <rect x={-BW} y={BY} width={BW * 2} height={BH} rx={BRX} fill="white" />
 
-          {/* Windscreen */}
-          <rect x={-WX} y={WY} width={WX * 2} height={WH} rx={1.5 * s} fill={lineColor} opacity={0.95} />
+        {/* Windscreen */}
+        <rect x={-WX} y={WY} width={WX * 2} height={WH} rx={1.5 * s} fill={lineColor} opacity={0.95} />
 
-          {/* Door */}
-          <line x1={0} y1={DY1} x2={0} y2={DY2} stroke={lineColor} strokeWidth={1.2 * s} />
+        {/* Door */}
+        <line x1={0} y1={DY1} x2={0} y2={DY2} stroke={lineColor} strokeWidth={1.2 * s} />
 
-          {/* Lights */}
-          <circle cx={-LCX} cy={LCY} r={LR} fill={lineColor} />
-          <circle cx={LCX}  cy={LCY} r={LR} fill={lineColor} />
+        {/* Lights */}
+        <circle cx={-LCX} cy={LCY} r={LR} fill={lineColor} />
+        <circle cx={LCX}  cy={LCY} r={LR} fill={lineColor} />
 
-          {/* Coupler */}
-          <line x1={0} y1={DY2} x2={0} y2={DY2 + 2 * s} stroke="white" strokeWidth={1.5 * s} strokeLinecap="round" />
+        {/* Coupler */}
+        <line x1={0} y1={DY2} x2={0} y2={DY2 + 2 * s} stroke="white" strokeWidth={1.5 * s} strokeLinecap="round" />
 
-          {/* Rails */}
-          <line x1={-RIX} y1={RIY} x2={-ROX} y2={ROY} stroke="white" strokeWidth={1.4 * s} strokeLinecap="round" />
-          <line x1={RIX}  y1={RIY} x2={ROX}  y2={ROY} stroke="white" strokeWidth={1.4 * s} strokeLinecap="round" />
-        </g>
+        {/* Rails */}
+        <line x1={-RIX} y1={RIY} x2={-ROX} y2={ROY} stroke="white" strokeWidth={1.4 * s} strokeLinecap="round" />
+        <line x1={RIX}  y1={RIY} x2={ROX}  y2={ROY} stroke="white" strokeWidth={1.4 * s} strokeLinecap="round" />
+
+        {/* Direction pointer */}
+        {directionArrow}
       </g>
   );
 }

@@ -12,8 +12,8 @@ function movingForward(p: LivePosition): boolean | null {
   return null;
 }
 
-const LEFT_MARGIN       = 120;
-const RIGHT_PADDING     = 24;
+export const LEFT_MARGIN       = 120;
+export const RIGHT_PADDING     = 24;
 const DOT_RADIUS        = 4;
 const MIN_LABEL_GAP_PX  = 45;
 const TIMES_Y_OFFSET    = 18; // px below the line stroke where times begin
@@ -50,6 +50,8 @@ interface Props {
   showTimes: boolean;
   /** Normalised stop names on the focus line — only show times at stops in this set */
   focusStopNames: Set<string> | null;
+  /** Normalised stop names shared across 2+ visible lines — suppress per-line label (LineMap renders it once) */
+  sharedStopNames: Set<string> | null;
 }
 
 function normStopName(name: string): string {
@@ -58,7 +60,7 @@ function normStopName(name: string): string {
 
 export function LineStrip({
   line, trains, allPositions, orientation, svgWidth, svgHeight,
-  stripIndex, stripHeight, viewport, selectedTripId, showTimes, focusStopNames,
+  stripIndex, stripHeight, viewport, selectedTripId, showTimes, focusStopNames, sharedStopNames,
 }: Props) {
   const selectedStopName = useUiStore(s => s.selectedStopName);
   const selectStop       = useUiStore(s => s.actions.selectStop);
@@ -203,9 +205,10 @@ export function LineStrip({
           scaleX={scaleX} stripY={lineY} lineColor={line.color} movingForward={movingForward(train)} />
       ))}
 
-      {/* Station labels — larger when zoomed */}
+      {/* Station labels — larger when zoomed; suppressed for shared stops (LineMap renders once) */}
       {stops.map((stop, i) => {
         if (!showLabel[i]) return null;
+        if (sharedStopNames?.has(normStopName(stop.stopName))) return null;
         const cx         = scaleX(stop.canonicalX);
         const isSelected = selectedStopName === stop.stopName;
         const dimmed     = selectedStopName !== null && !isSelected;

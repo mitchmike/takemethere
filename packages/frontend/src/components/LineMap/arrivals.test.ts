@@ -17,7 +17,7 @@ function makePos(overrides: Partial<LivePosition> & { tripId: string }): LivePos
 }
 
 function makeUpcomingStop(stopId: string, stopName: string, adjustedArrivalEpoch: number, predictedArrivalEpoch = 0) {
-  return { stopId, stopName, adjustedArrivalEpoch, predictedArrivalEpoch };
+  return { stopId, stopName, canonicalX: 0.5, scheduledArrivalEpoch: adjustedArrivalEpoch, adjustedArrivalEpoch, predictedArrivalEpoch, tuDelaySeconds: null };
 }
 
 describe('getArrivalsForStop', () => {

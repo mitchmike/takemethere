@@ -7,10 +7,11 @@ import { useDeadReckoning } from '../../hooks/useDeadReckoning.js';
 import { REGION_ORDER, LINE_MAP } from '@takemethere/shared';
 import { LineFilter } from './LineFilter.js';
 import { DirectionFilter } from './DirectionFilter.js';
-import { LineStrip } from './LineStrip.js';
+import { LineStrip, LEFT_MARGIN, RIGHT_PADDING } from './LineStrip.js';
 import { TrainInfoPanel } from './TrainInfoPanel.js';
 import { FeedStatus } from './FeedStatus.js';
 import { computeTrainViewport, computeStationViewport } from './viewport.js';
+import { filterLinesByViewport } from './viewportFilter.js';
 
 export const STRIP_HEIGHT            = 100;
 export const STRIP_HEIGHT_WITH_TIMES = 155;
@@ -87,13 +88,13 @@ export function LineMap() {
     return () => el.removeEventListener('wheel', handleWheel);
   }, [handleWheel]);
 
-  // Filter visible lines: when zoomed, only show lines with a stop inside the viewport window
+  // Filter visible lines: when zoomed, only show lines sharing a stop name with the focus line
+  // that lands within the viewport. This prevents unrelated lines from appearing just because
+  // their canonicalX range overlaps (e.g. Frankston near East Camberwell).
   const visibleLines = useMemo(() => {
     let selected = lines.filter(l => selectedLineIds.has(l.lineId));
-    if (viewport) {
-      const lo = viewport.center - viewport.windowHalf;
-      const hi = viewport.center + viewport.windowHalf;
-      selected = selected.filter(l => l.stops.some(s => s.canonicalX >= lo && s.canonicalX <= hi));
+    if (viewport && focusStopNames) {
+      selected = filterLinesByViewport(selected, viewport, focusStopNames);
     }
     return selected.sort((a, b) => {
       const ra = REGION_ORDER.indexOf(LINE_MAP.get(a.lineId)?.region as any);
@@ -122,6 +123,26 @@ export function LineMap() {
     }
     return null;
   }, [selectedTripId, selectedStopName, positions, lines]);
+
+  // Stop names that appear on 2+ visible lines within the viewport.
+  // In the zoomed view these are rendered once as shared labels (not once per line strip).
+  const sharedStopNames = useMemo<Set<string> | null>(() => {
+    if (!viewport || visibleLines.length < 2) return null;
+    const norm = (n: string) => n.replace(/ Station$/, '').toLowerCase().trim();
+    const lo = viewport.center - viewport.windowHalf;
+    const hi = viewport.center + viewport.windowHalf;
+    const nameCounts = new Map<string, number>();
+    for (const line of visibleLines) {
+      for (const stop of line.stops) {
+        if (stop.canonicalX < lo || stop.canonicalX > hi) continue;
+        const n = norm(stop.stopName);
+        nameCounts.set(n, (nameCounts.get(n) ?? 0) + 1);
+      }
+    }
+    const shared = new Set<string>();
+    for (const [name, count] of nameCounts) { if (count >= 2) shared.add(name); }
+    return shared.size > 0 ? shared : null;
+  }, [viewport, visibleLines]);
 
   const selectedLineIdArray = useMemo(() => Array.from(selectedLineIds), [selectedLineIds]);
   useLineRoom(selectedLineIdArray);
@@ -187,9 +208,43 @@ export function LineMap() {
                 selectedTripId={selectedTripId}
                 showTimes={showTimes}
                 focusStopNames={focusStopNames}
+                sharedStopNames={sharedStopNames}
               />
             );
           })}
+
+          {/* Shared stop labels — rendered once above all strips when zoomed */}
+          {!isVertical && sharedStopNames && viewport && (() => {
+            const usableWidth = computedSvgWidth - LEFT_MARGIN - RIGHT_PADDING;
+            const viewMin = viewport.center - viewport.windowHalf;
+            const viewMax = viewport.center + viewport.windowHalf;
+            const scaleX  = (cx: number) =>
+              LEFT_MARGIN + ((cx - viewMin) / (viewMax - viewMin)) * usableWidth;
+
+            // Collect unique shared stops (by norm name) from the first line that contains each
+            const norm = (n: string) => n.replace(/ Station$/, '').toLowerCase().trim();
+            const rendered = new Set<string>();
+            const labels: { cx: number; name: string }[] = [];
+            for (const line of visibleLines) {
+              for (const stop of line.stops) {
+                const n = norm(stop.stopName);
+                if (!sharedStopNames.has(n) || rendered.has(n)) continue;
+                if (stop.canonicalX < viewMin || stop.canonicalX > viewMax) continue;
+                rendered.add(n);
+                labels.push({ cx: scaleX(stop.canonicalX), name: stop.stopName.replace(/ Station$/, '') });
+              }
+            }
+
+            return labels.map(({ cx, name }) => (
+              <text key={name}
+                transform={`rotate(-48, ${cx}, 16)`}
+                x={cx + 2} y={16}
+                fill="#18181b" fontSize={13} fontWeight={600}
+                style={{ cursor: 'default' }}>
+                {name}
+              </text>
+            ));
+          })()}
         </svg>
       </div>
 
