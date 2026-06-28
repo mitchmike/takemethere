@@ -14,6 +14,10 @@ All file edits and writes are pre-approved for this repo. No need to confirm bef
 - Prefer terse, direct responses; no hand-holding on standard concepts
 - Long planning and programming tasks can be run independently without frequent check-ins
 
+## Notifications
+
+Send a push notification (PushNotification tool) when a task is complete. The user has Remote Control enabled and push notifications turned on in /config.
+
 ## Working style
 
 - Work autonomously on well-scoped tasks; only pause for genuine ambiguity or irreversible actions
