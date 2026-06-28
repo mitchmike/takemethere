@@ -14,7 +14,7 @@ describe('projectToLine', () => {
   });
 
   it('returns the only stop canonicalX for single stop', () => {
-    expect(projectToLine(-37.99, 145.99, [{ canonicalX: 0.42, lat: -37.818, lon: 144.967 }])).toBe(0.42);
+    expect(projectToLine(-37.99, 145.99, [{ stopId: 'X', canonicalX: 0.42, lat: -37.818, lon: 144.967 }])).toBe(0.42);
   });
 
   it('returns 0 for a point exactly at the first stop', () => {
