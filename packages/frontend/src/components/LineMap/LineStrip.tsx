@@ -183,14 +183,31 @@ export function LineStrip({
     return false;
   });
 
-  // Build polyline points for the rail: start/end at lineY, pass through each visible stop's stopY
+  // Build stepped polyline for the rail.
+  // Edge y matches the nearest visible stop so the line doesn't branch back to lineY at the
+  // viewport boundary when shared stops extend all the way to the edge.
   const railPoints = (() => {
-    const pts: string[] = [`${x1},${lineY}`];
-    for (const stop of stops) {
-      if (!isInView(stop.canonicalX)) continue;
-      pts.push(`${scaleX(stop.canonicalX)},${stopY(stop.stopName)}`);
+    const visible = stops
+      .filter(s => isInView(s.canonicalX))
+      .map(s => ({ x: scaleX(s.canonicalX), y: stopY(s.stopName) }));
+
+    if (visible.length === 0) return `${x1},${lineY} ${x2},${lineY}`;
+
+    const all = [
+      { x: x1, y: visible[0].y },
+      ...visible,
+      { x: x2, y: visible[visible.length - 1].y },
+    ];
+
+    // Stepped: before each y-change, insert an intermediate point at (nextX, prevY)
+    // so segments are always horizontal or vertical, never diagonal.
+    const pts: string[] = [`${all[0].x},${all[0].y}`];
+    for (let i = 1; i < all.length; i++) {
+      const prev = all[i - 1];
+      const curr = all[i];
+      if (prev.y !== curr.y) pts.push(`${curr.x},${prev.y}`);
+      pts.push(`${curr.x},${curr.y}`);
     }
-    pts.push(`${x2},${lineY}`);
     return pts.join(' ');
   })();
 

@@ -181,9 +181,10 @@ describe('LineStrip', () => {
       });
       // Camberwell is at canonicalX=0.5 — inside viewport — should be at y=120
       const camberwellX = LEFT_MARGIN + ((0.5 - 0.1) / 0.8) * (800 - LEFT_MARGIN - RIGHT_PADDING);
-      const sharedPt = pts.find(p => Math.abs(p.x - camberwellX) < 1);
+      // Stepped rail inserts two points at each y-change: (x, prevY) then (x, newY).
+      // We want to confirm there IS a point at camberwellX with y=120 (the sharedStopMidY).
+      const sharedPt = pts.find(p => Math.abs(p.x - camberwellX) < 1 && p.y === 120);
       expect(sharedPt).toBeTruthy();
-      expect(sharedPt!.y).toBe(120);
     });
 
     it('non-shared stop label is shown even when adjacent to a shared stop', () => {
