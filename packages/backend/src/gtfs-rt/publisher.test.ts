@@ -263,6 +263,89 @@ describe('buildStopTimeNameIndex', () => {
   });
 });
 
+// ─── Trip-terminus override ───────────────────────────────────────────────────
+
+describe('publisher trip-terminus override', () => {
+  // Trip terminates at Camberwell (11209). Stop_times ends there.
+  const STOP_TIMES_TERMINUS_CAMBERWELL: StopTimeEntry[] = [
+    { seq: 1, stopId: '12261', arrivalSec: 36000, departureSec: 36000 },
+    { seq: 2, stopId: '12249', arrivalSec: 36060, departureSec: 36060 },
+    { seq: 3, stopId: '12245', arrivalSec: 36120, departureSec: 36120 },
+    { seq: 4, stopId: '12242', arrivalSec: 36180, departureSec: 36180 },
+    { seq: 5, stopId: '12239', arrivalSec: 36240, departureSec: 36240 },
+    { seq: 6, stopId: '11209', arrivalSec: 36300, departureSec: 36300 }, // TERMINUS
+  ];
+
+  beforeEach(() => {
+    setTripStopTimesCache('trip-001', STOP_TIMES_TERMINUS_CAMBERWELL);
+    setTripDirections(new Map([['trip-001', 0]]));
+  });
+
+  it('sets nextStopId=null when TU claims a stop beyond the trip terminus (Camberwell→Auburn overrun)', async () => {
+    // GPS places train at Camberwell. TU (incorrectly) reports next stop = East Camberwell.
+    // The trip ends at Camberwell, so publisher must override nextStop to null.
+    const io = makeIo();
+    const vp = makeVp({ lat: -37.8248, lon: 145.0574 }); // Camberwell coords
+    await publishPositions(io, [vp], new Map([
+      ['trip-001', makeTu({ nextStopId: '12207' /* East Camberwell */ })],
+    ]));
+    const [[positions]] = io._emitted['line:belgrave:vehicles:update'];
+    const pos = (positions as any[])[0];
+    expect(pos.nextStopId).toBeNull();
+    expect(pos.nextStopCanonicalX).toBe(-1);
+  });
+
+  it('sets nextStopId=null when stop_times terminus uses an alt platform ID (name fallback in terminus check)', async () => {
+    // Same scenario but the trip's stop_times has the alt platform ID (11208) as the terminus
+    // rather than the canonical one (11209). The terminus check must name-match to catch it.
+    const STOP_TIMES_ALT_TERMINUS: StopTimeEntry[] = [
+      { seq: 1, stopId: '12261', arrivalSec: 36000, departureSec: 36000 },
+      { seq: 2, stopId: '12249', arrivalSec: 36060, departureSec: 36060 },
+      { seq: 3, stopId: '12245', arrivalSec: 36120, departureSec: 36120 },
+      { seq: 4, stopId: '12242', arrivalSec: 36180, departureSec: 36180 },
+      { seq: 5, stopId: '12239', arrivalSec: 36240, departureSec: 36240 },
+      { seq: 6, stopId: CAMBERWELL_ALT_ID, arrivalSec: 36300, departureSec: 36300 }, // TERMINUS via alt ID
+    ];
+    setTripStopTimesCache('trip-001', STOP_TIMES_ALT_TERMINUS);
+
+    // GPS at Camberwell, TU says next stop is East Camberwell (overrun past terminus)
+    const io = makeIo();
+    const vp = makeVp({ lat: -37.8248, lon: 145.0574 });
+    await publishPositions(io, [vp], new Map([
+      ['trip-001', makeTu({ nextStopId: '12207' /* East Camberwell */ })],
+    ]));
+    const [[positions]] = io._emitted['line:belgrave:vehicles:update'];
+    const pos = (positions as any[])[0];
+    // Terminus check should fire via name fallback (stop_times has 11208, prevStop has 11209)
+    expect(pos.nextStopId).toBeNull();
+    expect(pos.nextStopCanonicalX).toBe(-1);
+  });
+
+  it('does NOT apply terminus override for a non-terminus stop (mid-line train still gets nextStop)', async () => {
+    // Train between Hawthorn and Glenferrie — trip still has stops ahead.
+    const io = makeIo();
+    await publishPositions(io, [makeVp()], new Map([
+      ['trip-001', makeTu({ nextStopId: '12242' /* Glenferrie */ })],
+    ]));
+    const [[positions]] = io._emitted['line:belgrave:vehicles:update'];
+    const pos = (positions as any[])[0];
+    expect(pos.nextStopId).not.toBeNull();
+    expect(pos.nextStopCanonicalX).toBe(0.30);
+  });
+
+  it('prevStopName is Camberwell and nextStopName is null at terminus', async () => {
+    const io = makeIo();
+    const vp = makeVp({ lat: -37.8248, lon: 145.0574 }); // Camberwell
+    await publishPositions(io, [vp], new Map([
+      ['trip-001', makeTu({ nextStopId: '12207' })],
+    ]));
+    const [[positions]] = io._emitted['line:belgrave:vehicles:update'];
+    const pos = (positions as any[])[0];
+    expect(pos.prevStopName).toBe('Camberwell Station');
+    expect(pos.nextStopName).toBeNull();
+  });
+});
+
 // ─── nextArrivalEpoch — platform ID mismatch ─────────────────────────────────
 
 describe('nextArrivalEpoch with platform stop_id mismatch', () => {

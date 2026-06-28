@@ -408,7 +408,7 @@ export async function publishPositions(
       }
     }
 
-    const nextStopId = nextStop?.stopId ?? tu?.nextStopId ?? null;
+    const nextStopId = nextStop?.stopId ?? null;
 
     const live: LivePosition = {
       tripId: pos.tripId,
