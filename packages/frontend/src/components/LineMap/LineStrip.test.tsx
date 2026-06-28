@@ -158,50 +158,199 @@ describe('LineStrip', () => {
     });
   });
 
-  describe('shared stop step effect', () => {
-    const VIEWPORT = { center: 0.5, windowHalf: 0.4 };
-    const shared = new Set(['camberwell']);
+  // ── Helpers for step-effect tests ───────────────────────────────────────────
+  // MOCK_LINE stops: Flinders(cx=0), Richmond(cx=0.1), Camberwell(cx=0.5), Belgrave(cx=1)
+  // VIEWPORT = { center:0.5, windowHalf:0.4 } → viewMin=0.1, viewMax=0.9
+  // Visible in that viewport: Richmond(0.1) and Camberwell(0.5)  [Flinders and Belgrave are out]
+  // lineY for strip 0 = 0*100 + round(100*0.78) = 78
+  const ZOOM_VIEWPORT = { center: 0.5, windowHalf: 0.4 };
+  const lineY = Math.round(100 * 0.78); // = 78
+  const SHARED_Y = 120; // arbitrary sharedStopY between lineY(78) and some midY
 
-    it('polyline y at shared stop equals sharedStopY', () => {
+  function parsePolylinePts(container: Element) {
+    const rail = container.querySelector('polyline')!;
+    return rail.getAttribute('points')!.trim().split(/\s+/).map(p => {
+      const [x, y] = p.split(',').map(parseFloat);
+      return { x, y };
+    });
+  }
+
+  function camberwellPx() {
+    // scaleX(0.5) with viewMin=0.1, viewMax=0.9, svgWidth=800
+    return LEFT_MARGIN + ((0.5 - 0.1) / 0.8) * (800 - LEFT_MARGIN - RIGHT_PADDING);
+  }
+  function richmondPx() {
+    // scaleX(0.1) = LEFT_MARGIN (viewMin edge)
+    return LEFT_MARGIN + ((0.1 - 0.1) / 0.8) * (800 - LEFT_MARGIN - RIGHT_PADDING);
+  }
+
+  describe('req 1 — lines closer together at shared sections', () => {
+    it('shared stop circle cy equals sharedStopY (not lineY)', () => {
       const { container } = render(
         <svg>
           <LineStrip
             {...BASE_PROPS}
             orientation="horizontal"
-            viewport={VIEWPORT}
-            sharedStopNames={shared}
-            sharedStopY={120}
+            viewport={ZOOM_VIEWPORT}
+            sharedStopNames={new Set(['camberwell'])}
+            sharedStopY={SHARED_Y}
           />
         </svg>
       );
-      const rail = container.querySelector('polyline');
-      const pts = rail!.getAttribute('points')!.trim().split(/\s+/).map(p => {
-        const [x, y] = p.split(',').map(parseFloat);
-        return { x, y };
+      // Camberwell is at canonicalX=0.5, shared → circle cy should be SHARED_Y
+      const circles = Array.from(container.querySelectorAll('circle'));
+      const camberwellCircle = circles.find(c => {
+        const cx = parseFloat(c.getAttribute('cx') ?? '');
+        return Math.abs(cx - camberwellPx()) < 1;
       });
-      // Camberwell is at canonicalX=0.5 — inside viewport — should be at y=120
-      const camberwellX = LEFT_MARGIN + ((0.5 - 0.1) / 0.8) * (800 - LEFT_MARGIN - RIGHT_PADDING);
-      // Stepped rail inserts two points at each y-change: (x, prevY) then (x, newY).
-      // We want to confirm there IS a point at camberwellX with y=120 (the sharedStopY).
-      const sharedPt = pts.find(p => Math.abs(p.x - camberwellX) < 1 && p.y === 120);
-      expect(sharedPt).toBeTruthy();
+      expect(camberwellCircle).toBeTruthy();
+      expect(parseFloat(camberwellCircle!.getAttribute('cy')!)).toBe(SHARED_Y);
     });
 
-    it('non-shared stop label is shown even when adjacent to a shared stop', () => {
-      // Richmond is adjacent to Camberwell (the shared stop). Richmond should still get a label.
+    it('non-shared stop circle cy equals lineY', () => {
       const { container } = render(
         <svg>
           <LineStrip
             {...BASE_PROPS}
             orientation="horizontal"
-            viewport={VIEWPORT}
-            sharedStopNames={shared}
-            sharedStopY={120}
+            viewport={ZOOM_VIEWPORT}
+            sharedStopNames={new Set(['camberwell'])} // Richmond NOT shared
+            sharedStopY={SHARED_Y}
+          />
+        </svg>
+      );
+      const circles = Array.from(container.querySelectorAll('circle'));
+      const richmondCircle = circles.find(c => {
+        const cx = parseFloat(c.getAttribute('cx') ?? '');
+        return Math.abs(cx - richmondPx()) < 1;
+      });
+      expect(richmondCircle).toBeTruthy();
+      expect(parseFloat(richmondCircle!.getAttribute('cy')!)).toBe(lineY);
+    });
+  });
+
+  describe('req 2 — step AT the shared station, not before it', () => {
+    it('when first visible stop is non-shared, y-change in polyline occurs at the shared stop x', () => {
+      // Richmond(non-shared) is before Camberwell(shared) in the viewport.
+      // The rail should be flat at lineY until it reaches Camberwell's x, then step.
+      const { container } = render(
+        <svg>
+          <LineStrip
+            {...BASE_PROPS}
+            orientation="horizontal"
+            viewport={ZOOM_VIEWPORT}
+            sharedStopNames={new Set(['camberwell'])}
+            sharedStopY={SHARED_Y}
+          />
+        </svg>
+      );
+      const pts = parsePolylinePts(container);
+      const stepX = camberwellPx();
+
+      // All points strictly before Camberwell's x must be at lineY
+      const prematureStep = pts.find(p => p.x < stepX - 1 && p.y !== lineY);
+      expect(prematureStep).toBeUndefined();
+
+      // There must be a point at Camberwell's x with y = SHARED_Y
+      const stepPoint = pts.find(p => Math.abs(p.x - stepX) < 1 && p.y === SHARED_Y);
+      expect(stepPoint).toBeTruthy();
+    });
+
+    it('polyline segments are always horizontal or vertical — no diagonals', () => {
+      const { container } = render(
+        <svg>
+          <LineStrip
+            {...BASE_PROPS}
+            orientation="horizontal"
+            viewport={ZOOM_VIEWPORT}
+            sharedStopNames={new Set(['camberwell'])}
+            sharedStopY={SHARED_Y}
+          />
+        </svg>
+      );
+      const pts = parsePolylinePts(container);
+      for (let i = 1; i < pts.length; i++) {
+        const dx = pts[i].x - pts[i - 1].x;
+        const dy = pts[i].y - pts[i - 1].y;
+        expect(dx === 0 || dy === 0).toBe(true); // horizontal OR vertical
+      }
+    });
+  });
+
+  describe('req 3 — trains stay on the line (follow rail y)', () => {
+    it('train with null prevStopName does not crash', () => {
+      const trainNullPrev = makeTrain({ prevStopName: null as any });
+      expect(() =>
+        render(
+          <svg>
+            <LineStrip
+              {...BASE_PROPS}
+              orientation="horizontal"
+              viewport={ZOOM_VIEWPORT}
+              sharedStopNames={new Set(['camberwell'])}
+              sharedStopY={SHARED_Y}
+              trains={[trainNullPrev]}
+            />
+          </svg>
+        )
+      ).not.toThrow();
+    });
+
+  });
+
+  describe('req 4 — no fanning at city end when lines are still together', () => {
+    it('when all visible stops are shared, polyline stays at sharedStopY throughout', () => {
+      // Both Richmond and Camberwell are shared — entire visible section is shared.
+      // The polyline should be flat at SHARED_Y with no segments at lineY.
+      const { container } = render(
+        <svg>
+          <LineStrip
+            {...BASE_PROPS}
+            orientation="horizontal"
+            viewport={ZOOM_VIEWPORT}
+            sharedStopNames={new Set(['richmond', 'camberwell'])}
+            sharedStopY={SHARED_Y}
+          />
+        </svg>
+      );
+      const pts = parsePolylinePts(container);
+      const fanOut = pts.find(p => p.y === lineY);
+      expect(fanOut).toBeUndefined();
+      expect(pts.every(p => p.y === SHARED_Y)).toBe(true);
+    });
+
+    it('when first visible stop is shared, left edge of polyline is at sharedStopY not lineY', () => {
+      const { container } = render(
+        <svg>
+          <LineStrip
+            {...BASE_PROPS}
+            orientation="horizontal"
+            viewport={ZOOM_VIEWPORT}
+            sharedStopNames={new Set(['richmond', 'camberwell'])} // Richmond first = shared
+            sharedStopY={SHARED_Y}
+          />
+        </svg>
+      );
+      const pts = parsePolylinePts(container);
+      // First point in the polyline is the left edge
+      expect(pts[0].y).toBe(SHARED_Y);
+    });
+  });
+
+  describe('shared stop label spacing', () => {
+    it('non-shared stop label is shown even when adjacent to a shared stop', () => {
+      const { container } = render(
+        <svg>
+          <LineStrip
+            {...BASE_PROPS}
+            orientation="horizontal"
+            viewport={ZOOM_VIEWPORT}
+            sharedStopNames={new Set(['camberwell'])}
+            sharedStopY={SHARED_Y}
           />
         </svg>
       );
       const texts = Array.from(container.querySelectorAll('text')).map(t => t.textContent);
-      // Richmond is not shared and should not be blocked by Camberwell consuming spacing
       expect(texts.some(t => t === 'Richmond')).toBe(true);
     });
   });

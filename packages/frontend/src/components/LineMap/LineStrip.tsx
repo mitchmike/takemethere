@@ -58,7 +58,8 @@ interface Props {
   sharedStopY: number | null;
 }
 
-function normStopName(name: string): string {
+function normStopName(name: string | null | undefined): string {
+  if (!name) return '';
   return name.replace(/ Station$/, '').toLowerCase().trim();
 }
 
@@ -167,9 +168,9 @@ export function LineStrip({
   const x1 = scaleX(Math.max(lineMinCx, viewMin));
   const x2 = scaleX(Math.min(lineMaxCx, viewMax));
 
-  // stopY: shared stops move to this strip's closer-to-centre y when zoomed; non-shared stay at lineY.
-  const stopY = (name: string): number => {
-    if (sharedStopY !== null && sharedStopNames?.has(normStopName(name))) return sharedStopY;
+  // stopY: shared stops move to this strip's closer-to-centre y; non-shared (or null name) stay at lineY.
+  const stopY = (name: string | null | undefined): number => {
+    if (sharedStopY !== null && name && sharedStopNames?.has(normStopName(name))) return sharedStopY;
     return lineY;
   };
 
@@ -183,18 +184,24 @@ export function LineStrip({
     return false;
   });
 
-  // Build stepped polyline for the rail.
-  // Edges are always at lineY so the step happens exactly AT the shared stop's x — not before it.
-  // Segments are horizontal or vertical only (no diagonals).
+  // Build stepped polyline for the rail. Segments are always horizontal or vertical (no diagonals).
+  //
+  // Edge y inherits the nearest visible stop's y:
+  //   - If the edge stop is shared (sharedStopY): edge stays at sharedStopY — no fanning when lines
+  //     are still together at the viewport boundary (e.g. city-side stops all shared).
+  //   - If the edge stop is non-shared (lineY): edge at lineY, and the first step occurs exactly
+  //     AT the first shared stop's x — not before it.
   const railPoints = (() => {
     const visible = stops
       .filter(s => isInView(s.canonicalX))
       .map(s => ({ x: scaleX(s.canonicalX), y: stopY(s.stopName) }));
 
+    if (visible.length === 0) return `${x1},${lineY} ${x2},${lineY}`;
+
     const all = [
-      { x: x1, y: lineY },
+      { x: x1, y: visible[0].y },
       ...visible,
-      { x: x2, y: lineY },
+      { x: x2, y: visible[visible.length - 1].y },
     ];
 
     const pts: string[] = [`${all[0].x},${all[0].y}`];
