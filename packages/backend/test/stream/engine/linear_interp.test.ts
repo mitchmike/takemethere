@@ -3,19 +3,21 @@ import type { LivePosition } from '@takemethere/shared';
 import {
   computeInterpolatedX,
   tryAdvanceSegment,
+} from '../../../src/stream/engine/linear_interp.js';
+import {
   updateLivePosition,
   removeLivePosition,
   isAtTripTerminus,
   getTripLastStopId,
-} from './streamer.js';
+} from '../../../src/stream/engine/position_store.js';
 
-vi.mock('../redis/client.js', () => ({
+vi.mock('../../../src/redis/client.js', () => ({
   redis: { set: vi.fn().mockResolvedValue('OK'), keys: vi.fn().mockResolvedValue([]) },
   redisSub: { subscribe: vi.fn(), on: vi.fn() },
 }));
 
-import { setLineStopCoords, setGlobalStopNames, setTripStopTimesCache } from './publisher.js';
-import type { StopData } from './publisher.js';
+import { setLineStopCoords, setGlobalStopNames, setTripStopTimesCache } from '../../../src/stream/engine/static_data.js';
+import type { StopData } from '../../../src/stream/engine/static_data.js';
 
 const BELGRAVE_STOPS: StopData[] = [
   { stopId: '12261', stopName: 'Richmond Station',        canonicalX: 0.00, lat: -37.8245, lon: 144.9985 },
@@ -32,8 +34,6 @@ beforeEach(() => {
   setGlobalStopNames(new Map(BELGRAVE_STOPS.map(s => [s.stopId, s.stopName])));
 });
 
-// A realistic LivePosition mid-segment: train is at cx=0.20 heading toward cx=0.30.
-// GPS timestamp is now; next stop is 60 seconds away (predictedNextArrivalEpoch = now+60).
 function makePos(overrides: Partial<LivePosition> = {}): LivePosition {
   const now = Math.floor(Date.now() / 1000);
   return {
@@ -53,9 +53,9 @@ function makePos(overrides: Partial<LivePosition> = {}): LivePosition {
     nextStopName: 'Glenferrie Station',
     nextStopCanonicalX: 0.30,
 
-    scheduledNextArrivalEpoch: now - 10, // scheduled arrival was 10 seconds ago (train is late)
-    nextArrivalEpoch: now - 10,          // delay-adjusted = same; this is in the PAST
-    predictedNextArrivalEpoch: now + 60, // GPS-derived: 60 seconds to next stop
+    scheduledNextArrivalEpoch: now - 10,
+    nextArrivalEpoch: now - 10,
+    predictedNextArrivalEpoch: now + 60,
 
     delay: 10,
     segmentSpeedKmh: 60,
@@ -65,14 +65,12 @@ function makePos(overrides: Partial<LivePosition> = {}): LivePosition {
   };
 }
 
-// ─── Trip terminus helpers ────────────────────────────────────────────────────
-
 describe('isAtTripTerminus', () => {
   beforeEach(() => {
     setTripStopTimesCache('trip-001', [
       { seq: 1, stopId: '12261', arrivalSec: 36000, departureSec: 36010 },
       { seq: 2, stopId: '12249', arrivalSec: 36060, departureSec: 36065 },
-      { seq: 3, stopId: '11209', arrivalSec: 36180, departureSec: 36190 }, // Camberwell = last
+      { seq: 3, stopId: '11209', arrivalSec: 36180, departureSec: 36190 },
     ]);
   });
 
@@ -85,7 +83,6 @@ describe('isAtTripTerminus', () => {
   });
 
   it('returns true via name fallback when stopId is an alternate platform ID', () => {
-    // '11209-alt' is not in the cache, but its name matches Camberwell
     setGlobalStopNames(new Map([
       ...BELGRAVE_STOPS.map(s => [s.stopId, s.stopName] as [string, string]),
       ['11209-alt', 'Camberwell Station'],
@@ -122,7 +119,6 @@ describe('computeInterpolatedX', () => {
   it('returns a position between prev and next stop 30 seconds later', () => {
     const pos = makePos();
     const x = computeInterpolatedX(pos, pos.timestamp + 30);
-    // 30s elapsed, 60s total → t=0.5 → expected cx = 0.20 + 0.5*(0.30-0.20) = 0.25
     expect(x).toBeCloseTo(0.25, 2);
   });
 
@@ -140,7 +136,6 @@ describe('computeInterpolatedX', () => {
   });
 
   it('TRAIN MOVES: position at t+1 is less than at t (inbound, decreasing cx)', () => {
-    // Inbound train: was at cx=0.30, heading to cx=0.20 (decreasing)
     const now = Math.floor(Date.now() / 1000);
     const pos = makePos({
       canonicalX: 0.30,
@@ -154,15 +149,11 @@ describe('computeInterpolatedX', () => {
   });
 
   it('uses predictedNextArrivalEpoch even when nextArrivalEpoch is in the past', () => {
-    // This is the core regression: scheduled arrival was 10s ago (train is late),
-    // but GPS predicts 60s to next stop. The train must still move.
     const pos = makePos();
-    expect(pos.nextArrivalEpoch).toBeLessThan(pos.timestamp); // confirm setup: in the past
-    expect(pos.predictedNextArrivalEpoch).toBeGreaterThan(pos.timestamp); // GPS: in the future
+    expect(pos.nextArrivalEpoch).toBeLessThan(pos.timestamp);
+    expect(pos.predictedNextArrivalEpoch).toBeGreaterThan(pos.timestamp);
 
     const x30 = computeInterpolatedX(pos, pos.timestamp + 30);
-    // If the bug were present, x30 would equal pos.canonicalX (0.20) because total<=0.
-    // With the fix, x30 should be ~0.25 (halfway to next stop).
     expect(x30).toBeGreaterThan(pos.canonicalX);
   });
 
@@ -191,12 +182,9 @@ describe('computeInterpolatedX', () => {
   });
 });
 
-// ─── tryAdvanceSegment ────────────────────────────────────────────────────────
-
 describe('tryAdvanceSegment', () => {
   const now = Math.floor(Date.now() / 1000);
 
-  // Stop times for belgrave trip: Richmond→Burnley→Hawthorn→Glenferrie→Auburn→Camberwell
   const STOP_TIMES = [
     { seq: 1, stopId: '12261', arrivalSec: 36000, departureSec: 36010 },
     { seq: 2, stopId: '12249', arrivalSec: 36060, departureSec: 36065 },
@@ -232,13 +220,10 @@ describe('tryAdvanceSegment', () => {
     const pos = makeMidPos();
     const advanced = tryAdvanceSegment(pos, 0.20, now);
     expect(advanced).not.toBeNull();
-    // Old nextStop (Hawthorn) becomes new prevStop
     expect(advanced!.prevStopId).toBe('12245');
     expect(advanced!.prevStopName).toBe('Hawthorn Station');
-    // New nextStop is Glenferrie
     expect(advanced!.nextStopId).toBe('12242');
     expect(advanced!.nextStopName).toBe('Glenferrie Station');
-    // canonicalX reset to arrived stop
     expect(advanced!.canonicalX).toBeCloseTo(0.20, 4);
   });
 
@@ -249,27 +234,23 @@ describe('tryAdvanceSegment', () => {
   });
 
   it('detects trip terminus mid-line: stops at Camberwell even though East Camberwell is next on the line', () => {
-    // STOP_TIMES ends at Camberwell (11209) — the trip terminates there.
-    // East Camberwell (12207, cx=0.60) exists in BELGRAVE_STOPS but is NOT in this trip's schedule.
-    // tryAdvanceSegment must recognise Camberwell as trip terminus and return nextStopId=null.
     const pos = makeMidPos({
       prevStopId: '12239', prevStopName: 'Auburn Station',     prevStopCanonicalX: 0.40,
       nextStopId: '11209', nextStopName: 'Camberwell Station', nextStopCanonicalX: 0.50,
     });
     const advanced = tryAdvanceSegment(pos, 0.50, now);
     expect(advanced).not.toBeNull();
-    expect(advanced!.prevStopId).toBe('11209');  // Camberwell = new prev
-    expect(advanced!.nextStopId).toBeNull();      // trip ends here — not East Camberwell
+    expect(advanced!.prevStopId).toBe('11209');
+    expect(advanced!.nextStopId).toBeNull();
     expect(advanced!.nextStopCanonicalX).toBe(-1);
   });
 
-  it('inbound: trip terminating at Burnley (idx=1) returns nextStopId=null, not Richmond', () => {
-    // Inbound trip that terminates at Burnley: STOP_TIMES ends at Burnley (12249).
+  it('inbound: trip terminating at Burnley returns nextStopId=null, not Richmond', () => {
     setTripStopTimesCache('trip-inbound-burnley', [
-      { seq: 1, stopId: '11209', arrivalSec: 36000, departureSec: 36010 },  // Camberwell
-      { seq: 2, stopId: '12207', arrivalSec: 36060, departureSec: 36065 },  // East Camberwell
-      { seq: 3, stopId: '12245', arrivalSec: 36120, departureSec: 36125 },  // Hawthorn
-      { seq: 4, stopId: '12249', arrivalSec: 36180, departureSec: 36190 },  // Burnley (terminus)
+      { seq: 1, stopId: '11209', arrivalSec: 36000, departureSec: 36010 },
+      { seq: 2, stopId: '12207', arrivalSec: 36060, departureSec: 36065 },
+      { seq: 3, stopId: '12245', arrivalSec: 36120, departureSec: 36125 },
+      { seq: 4, stopId: '12249', arrivalSec: 36180, departureSec: 36190 },
     ]);
     const pos = makeMidPos({
       tripId: 'trip-inbound-burnley',
@@ -277,11 +258,10 @@ describe('tryAdvanceSegment', () => {
       prevStopId: '12245', prevStopName: 'Hawthorn Station', prevStopCanonicalX: 0.20,
       nextStopId: '12249', nextStopName: 'Burnley Station',  nextStopCanonicalX: 0.10,
     });
-    // Inbound: interpX decreasing, crossing when interpX <= 0.10
     const advanced = tryAdvanceSegment(pos, 0.10, now);
     expect(advanced).not.toBeNull();
-    expect(advanced!.prevStopId).toBe('12249'); // Burnley = new prev
-    expect(advanced!.nextStopId).toBeNull();     // trip ends at Burnley — not Richmond
+    expect(advanced!.prevStopId).toBe('12249');
+    expect(advanced!.nextStopId).toBeNull();
     expect(advanced!.nextStopCanonicalX).toBe(-1);
   });
 
@@ -293,11 +273,9 @@ describe('tryAdvanceSegment', () => {
       nextStopId: null, nextStopName: null, nextStopCanonicalX: -1,
       predictedNextArrivalEpoch: 0,
     };
-    // Simulate streamer having advanced to terminus
-    removeLivePosition('trip-001');        // clear any prior state
+    removeLivePosition('trip-001');
     updateLivePosition(terminusPos);
 
-    // Now simulate GPS poll arriving with train "approaching" East Camberwell
     const gpsPollPos: LivePosition = {
       ...makeMidPos(),
       canonicalX: 0.58,
@@ -307,14 +285,11 @@ describe('tryAdvanceSegment', () => {
     };
     updateLivePosition(gpsPollPos);
 
-    // The terminus state must NOT be overwritten — computeInterpolatedX should return fixed cx
     const interpX = computeInterpolatedX(terminusPos, now + 60);
-    expect(interpX).toBeCloseTo(0.60, 4); // still frozen at terminus
-    // (We confirm terminusPos itself is unchanged — the guard kept it in livePositions)
+    expect(interpX).toBeCloseTo(0.60, 4);
   });
 
   it('advances by name fallback when nextStopId uses an alternate platform ID', () => {
-    // Simulate a platform ID mismatch: TU used 'HAW-PLATFORM-2' but our line list has '12245'
     setGlobalStopNames(new Map([
       ...BELGRAVE_STOPS.map(s => [s.stopId, s.stopName] as [string, string]),
       ['HAW-PLATFORM-2', 'Hawthorn Station'],
@@ -324,7 +299,7 @@ describe('tryAdvanceSegment', () => {
     });
     const advanced = tryAdvanceSegment(pos, 0.20, now);
     expect(advanced).not.toBeNull();
-    expect(advanced!.prevStopId).toBe('12245'); // resolved via name fallback to canonical Hawthorn ID
+    expect(advanced!.prevStopId).toBe('12245');
   });
 
   it('returns null when neither stopId nor stopName is found in the line stop list', () => {
@@ -335,15 +310,14 @@ describe('tryAdvanceSegment', () => {
   });
 
   it('returns pos with nextStopId=null when advancing past the last stop in the line', () => {
-    // East Camberwell (12207, cx=0.60) is the last stop in BELGRAVE_STOPS.
     const pos = makeMidPos({
       prevStopId: '11209', prevStopName: 'Camberwell Station',      prevStopCanonicalX: 0.50,
       nextStopId: '12207', nextStopName: 'East Camberwell Station', nextStopCanonicalX: 0.60,
     });
     const advanced = tryAdvanceSegment(pos, 0.60, now);
     expect(advanced).not.toBeNull();
-    expect(advanced!.prevStopId).toBe('12207');   // East Camberwell = new prevStop
-    expect(advanced!.nextStopId).toBeNull();       // no stop beyond terminus
+    expect(advanced!.prevStopId).toBe('12207');
+    expect(advanced!.nextStopId).toBeNull();
     expect(advanced!.nextStopCanonicalX).toBe(-1);
   });
 
@@ -354,10 +328,9 @@ describe('tryAdvanceSegment', () => {
       prevStopId: '12245', prevStopName: 'Hawthorn Station',   prevStopCanonicalX: 0.20,
       nextStopId: '12249', nextStopName: 'Burnley Station',    nextStopCanonicalX: 0.10,
     });
-    // interpX has dropped to 0.10 (reached Burnley inbound)
     const advanced = tryAdvanceSegment(pos, 0.10, now);
     expect(advanced).not.toBeNull();
-    expect(advanced!.prevStopId).toBe('12249'); // Burnley is new prev
-    expect(advanced!.nextStopId).toBe('12261'); // Richmond is new next (inbound)
+    expect(advanced!.prevStopId).toBe('12249');
+    expect(advanced!.nextStopId).toBe('12261');
   });
 });

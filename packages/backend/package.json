@@ -7,9 +7,9 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "vitest run",
-    "test:unit": "vitest run src/gtfs-rt",
-    "test:integration": "vitest run src/routes",
-    "simulate": "node --env-file=../../.env --import tsx/esm src/scripts/simulate.ts"
+    "test:unit": "vitest run test/stream test/simulator test/socket test/gtfs-static",
+    "test:integration": "vitest run test/routes",
+    "simulate": "node --env-file=../../.env --import tsx/esm src/simulator/script.ts"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.0",

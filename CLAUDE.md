@@ -29,7 +29,7 @@ Send a push notification (PushNotification tool) when a task is complete. The us
 
 - Every new function or module must have unit tests — no exceptions
 - When modifying existing code, update or extend tests to cover the change; don't leave tests behind
-- Tests live alongside the code they cover (co-located), not in a separate top-level test directory
+- Tests live in a `test/` folder within each package, mirroring the `src/` structure (e.g. `test/stream/engine/` for `src/stream/engine/`)
 - Every commit must include tests for the code it changes — no code commit without a corresponding test change
 - Once the stack is chosen, wire up a PostToolUse hook to run the unit test suite automatically after edits
 

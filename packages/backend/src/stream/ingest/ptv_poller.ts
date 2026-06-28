@@ -1,10 +1,16 @@
+/**
+ * PTV GTFS-RT poller — fetches vehicle position and trip update feeds from PTV
+ * every 30s and hands them to the publisher.
+ */
+
 import type { Server } from 'socket.io';
-import { config } from '../config.js';
-import { decodeFeed, extractVehiclePositions, extractTripUpdates } from './decoder.js';
-import { publishPositions, getPublishStats, loadMissingStopTimes, epochToMelbTime } from './publisher.js';
-import type { PublishStats } from './publisher.js';
-import { redis } from '../redis/client.js';
-import { keys } from '../redis/keys.js';
+import { config } from '../../config.js';
+import { decodeFeed, extractVehiclePositions, extractTripUpdates } from './position_decoder.js';
+import { publishPositions, getPublishStats } from '../output/publisher.js';
+import type { PublishStats } from '../output/publisher.js';
+import { loadMissingStopTimes, epochToMelbTime } from '../engine/static_data.js';
+import { redis } from '../../redis/client.js';
+import { keys } from '../../redis/keys.js';
 
 export interface PollerStatus {
   running: boolean;
@@ -53,10 +59,9 @@ async function poll(): Promise<void> {
     const vpFeed = decodeFeed(vpBuf);
     const tuFeed = decodeFeed(tuBuf);
 
-    const positions = extractVehiclePositions(vpFeed);
+    const positions   = extractVehiclePositions(vpFeed);
     const tripUpdates = extractTripUpdates(tuFeed);
 
-    // ── Debug logging for a specific trip ──────────────────────────────────
     const now = Date.now() / 1000;
     const debugVp = positions.find(p => p.tripId === DEBUG_TRIP);
     const debugTu = tripUpdates.get(DEBUG_TRIP);
@@ -86,17 +91,14 @@ async function poll(): Promise<void> {
         console.log('  TU raw: NO MATCH');
       }
     } else {
-      console.log(`[DEBUG ${DEBUG_TRIP}] not in this poll (not on glen-waverley or not active)`);
+      console.log(`[DEBUG ${DEBUG_TRIP}] not in this poll`);
     }
-    // ───────────────────────────────────────────────────────────────────────
 
     if (ioRef) await publishPositions(ioRef, positions, tripUpdates);
 
-    // Batch-load stop_times for any new trips seen this poll (async, populates cache for next poll)
     const activeTripIds = positions.map(p => p.tripId).filter(Boolean) as string[];
     loadMissingStopTimes(activeTripIds).catch(err => console.warn('[poller] stop_times load error:', err));
 
-    // ── Log the actual LivePosition that was published for the debug trip ──
     const raw = await redis.get(keys.vehicle(DEBUG_TRIP));
     if (raw) {
       const live = JSON.parse(raw);
@@ -105,28 +107,27 @@ async function poll(): Promise<void> {
       const elapsed = now2 - live.timestamp;
       const t       = total > 0 ? Math.min(1, elapsed / total) : null;
       console.log('  LivePosition:', {
-        segment:     `${live.prevStopName ?? '?'} → ${live.nextStopName ?? '?'}`,
-        canonicalX:  typeof live.canonicalX === 'number' ? live.canonicalX.toFixed(4) : live.canonicalX,
-        gpsAge:      `${Math.round(elapsed)}s`,
-        t:           t !== null ? t.toFixed(3) : 'N/A',
-        speedKmh:    live.segmentSpeedKmh != null ? live.segmentSpeedKmh.toFixed(1) : null,
-        delay:       `${live.delay}s`,
+        segment:    `${live.prevStopName ?? '?'} → ${live.nextStopName ?? '?'}`,
+        canonicalX: typeof live.canonicalX === 'number' ? live.canonicalX.toFixed(4) : live.canonicalX,
+        gpsAge:     `${Math.round(elapsed)}s`,
+        t:          t !== null ? t.toFixed(3) : 'N/A',
+        speedKmh:   live.segmentSpeedKmh != null ? live.segmentSpeedKmh.toFixed(1) : null,
+        delay:      `${live.delay}s`,
         directionId: live.directionId,
-        scheduled:   epochToMelbTime(live.scheduledNextArrivalEpoch),
-        adjusted:    epochToMelbTime(live.nextArrivalEpoch),
-        predicted:   epochToMelbTime(live.predictedNextArrivalEpoch),
-        upcoming:    (live.upcomingStops ?? []).slice(0, 3).map((s: { stopId: string; adjustedArrivalEpoch: number }) =>
+        scheduled:  epochToMelbTime(live.scheduledNextArrivalEpoch),
+        adjusted:   epochToMelbTime(live.nextArrivalEpoch),
+        predicted:  epochToMelbTime(live.predictedNextArrivalEpoch),
+        upcoming:   (live.upcomingStops ?? []).slice(0, 3).map((s: { stopId: string; adjustedArrivalEpoch: number }) =>
           `${s.stopId}@${epochToMelbTime(s.adjustedArrivalEpoch)}`),
       });
     } else {
-      console.log('  LivePosition: NOT IN REDIS — trip unmapped or not in feed');
+      console.log('  LivePosition: NOT IN REDIS');
     }
-    // ───────────────────────────────────────────────────────────────────────
 
     status.pollCount++;
-    status.lastPollAt = new Date().toISOString();
-    status.lastError = null;
-    status.lastPollMs = Date.now() - t0;
+    status.lastPollAt  = new Date().toISOString();
+    status.lastError   = null;
+    status.lastPollMs  = Date.now() - t0;
     status.publishStats = getPublishStats();
   } catch (err) {
     status.lastError = err instanceof Error ? err.message : String(err);
@@ -137,7 +138,7 @@ async function poll(): Promise<void> {
 export function startPoller(io: Server): void {
   if (status.running) return;
   ioRef = io;
-  status.running = true;
+  status.running   = true;
   status.lastError = null;
   poll();
   intervalHandle = setInterval(poll, config.GTFS_RT_POLL_INTERVAL_MS);

@@ -1,16 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { LivePosition } from '@takemethere/shared';
 
-// Mock Redis before importing the handler so the module resolves our mock
-vi.mock('../../redis/client.js', () => ({
+vi.mock('../../src/redis/client.js', () => ({
   redis: {
     keys: vi.fn(),
     mget: vi.fn(),
   },
 }));
 
-import { registerLineRoomHandlers } from './lineRoom.js';
-import { redis } from '../../redis/client.js';
+import { registerLineRoomHandlers } from '../../src/socket/handlers/lineRoom.js';
+import { redis } from '../../src/redis/client.js';
 
 function makeSocket() {
   const joinedRooms: string[] = [];
@@ -26,7 +25,6 @@ function makeSocket() {
       if (!listeners[event]) listeners[event] = [];
       listeners[event].push(handler);
     }),
-    // Test helper: trigger a registered event and return a promise that resolves when all handlers complete
     trigger: (event: string, ...args: unknown[]) =>
       Promise.all((listeners[event] ?? []).map(h => h(...args))),
     _joinedRooms: joinedRooms,
@@ -119,7 +117,6 @@ describe('registerLineRoomHandlers', () => {
 
       const socket = makeSocket();
       registerLineRoomHandlers(socket);
-      // Should resolve without throwing
       await expect(socket.trigger('rooms:join', { lines: ['belgrave'] })).resolves.toBeDefined();
     });
 

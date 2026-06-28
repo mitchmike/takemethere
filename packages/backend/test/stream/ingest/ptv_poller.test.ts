@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Mock all external dependencies so the poller never makes real network calls
-vi.mock('../config.js', () => ({
+vi.mock('../../../src/config.js', () => ({
   config: {
     PTV_API_KEY: 'test-key',
     PTV_GTFS_RT_URL: 'https://mock.ptv/vp',
@@ -11,41 +10,61 @@ vi.mock('../config.js', () => ({
   },
 }));
 
-vi.mock('./decoder.js', () => ({
+vi.mock('../../../src/stream/ingest/position_decoder.js', () => ({
   decodeFeed: vi.fn(() => ({ entity: [] })),
   extractVehiclePositions: vi.fn(() => []),
   extractTripUpdates: vi.fn(() => new Map()),
 }));
 
-vi.mock('./publisher.js', () => ({
+vi.mock('../../../src/stream/output/publisher.js', () => ({
   publishPositions: vi.fn(() => Promise.resolve()),
   getPublishStats: vi.fn(() => ({
     vehicleCount: 0, vehiclesByLine: [], unmappedCount: 0,
     tuMatchCount: 0, redisVehicleCount: 0, snapshotAt: null,
   })),
+}));
+
+vi.mock('../../../src/stream/engine/static_data.js', () => ({
   loadMissingStopTimes: vi.fn(() => Promise.resolve()),
+  epochToMelbTime: vi.fn((e: number) => String(e)),
+  setPool: vi.fn(),
+  setRouteLineMap: vi.fn(),
+  setLineStopCoords: vi.fn(),
+  setGlobalStopNames: vi.fn(),
+  setTripDirections: vi.fn(),
+  setDwellStats: vi.fn(),
+  setTripStopTimesCache: vi.fn(),
+  getRouteLineMap: vi.fn(() => new Map()),
+  getTripDirection: vi.fn(() => undefined),
+  getStopsForLine: vi.fn(() => []),
+  getStopCxByLine: vi.fn(() => -1),
+  getStopCxByName: vi.fn(() => -1),
+  getGlobalStopName: vi.fn(() => undefined),
+  getDwellStats: vi.fn(() => undefined),
+  getTripStopTimesCache: vi.fn(() => undefined),
+  hasTripInCache: vi.fn(() => false),
+  getPrevNextStopNames: vi.fn(() => ({ prevStopName: null, nextStopName: null })),
+  buildStopTimeNameIndex: vi.fn(() => new Map()),
+  normalizeName: vi.fn((s: string) => s.toLowerCase()),
+  getMelbourneMidnightEpoch: vi.fn(() => 0),
   epochToMelbTime: vi.fn((e: number) => String(e)),
 }));
 
-vi.mock('../redis/client.js', () => ({
+vi.mock('../../../src/redis/client.js', () => ({
   redis: { get: vi.fn(() => Promise.resolve(null)) },
 }));
 
-vi.mock('../redis/keys.js', () => ({
+vi.mock('../../../src/redis/keys.js', () => ({
   keys: { vehicle: (id: string) => `vehicle:${id}` },
 }));
 
-// Stub fetch so it returns empty protobuf buffers
 const EMPTY_BUF = Buffer.alloc(0);
 vi.stubGlobal('fetch', vi.fn(() =>
   Promise.resolve({ ok: true, arrayBuffer: () => Promise.resolve(EMPTY_BUF.buffer) }),
 ));
 
-// Import after mocks are set up
-import { startPoller, stopPoller, getPollerStatus } from './poller.js';
+import { startPoller, stopPoller, getPollerStatus } from '../../../src/stream/ingest/ptv_poller.js';
 
-// The poller module has module-level singleton state — stop after each test.
-// Do NOT call vi.clearAllMocks() here — it would wipe fetch mock implementations.
 afterEach(() => {
   stopPoller();
 });
@@ -97,7 +116,6 @@ describe('startPoller / stopPoller', () => {
     const mockIo = {} as any;
     startPoller(mockIo);
     startPoller(mockIo);
-    // Running should still be true, not crashed
     expect(getPollerStatus().running).toBe(true);
   });
 
@@ -122,7 +140,6 @@ describe('poll behaviour (mocked feed)', () => {
     const mockIo = {} as any;
     const before = getPollerStatus().pollCount;
     startPoller(mockIo);
-    // poll() is called immediately on startPoller — waitFor already asserts the condition
     await vi.waitFor(() => getPollerStatus().pollCount > before, { timeout: 2000 });
   });
 
@@ -150,16 +167,13 @@ describe('poll behaviour (mocked feed)', () => {
   });
 
   it('poll records lastError when fetch fails', async () => {
-    // Stub fetch to reject before startPoller so the first poll sees the error
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network error')));
 
     const mockIo = {} as any;
     startPoller(mockIo);
     await vi.waitFor(() => getPollerStatus().lastError !== null, { timeout: 2000 });
-    // running must still be true — errors are non-fatal
     expect(getPollerStatus().running).toBe(true);
 
-    // Restore the success mock so afterEach cleanup works cleanly
     vi.stubGlobal('fetch', vi.fn(() =>
       Promise.resolve({ ok: true, arrayBuffer: () => Promise.resolve(EMPTY_BUF.buffer) }),
     ));

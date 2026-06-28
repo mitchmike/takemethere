@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { simulateTrip, listTrips, parseSnapshots, type SimSnapshot } from './simulator.js';
+import { simulateTrip, listTrips, parseSnapshots, type SimSnapshot } from '../../src/simulator/engine.js';
 import type { LivePosition } from '@takemethere/shared';
-
-// ─── Fixtures ──────────────────────────────────────────────────────────────────
 
 function makePos(overrides: Partial<LivePosition> = {}): LivePosition {
   return {
@@ -29,23 +27,12 @@ function makeSnapshot(capturedAt: string, vehicles: LivePosition[]): SimSnapshot
   return { capturedAt, vehicles };
 }
 
-// The interpolation formula used in simulator.ts (for golden-value verification):
-// elapsed = capturedAt_sec - pos.timestamp
-// total   = predictedNextArrivalEpoch - pos.timestamp
-// t       = min(1, elapsed / total)
-// interpX = canonicalX + t * (nextStopCanonicalX - canonicalX)
-
 const BASE_EPOCH = 1_000_000;
-const PRED_EPOCH = 1_000_200; // 200s ahead of BASE_EPOCH
-const SEC = (iso: string) => new Date(iso).getTime() / 1000;
+const PRED_EPOCH = 1_000_200;
 
-// Snapshot timestamps are ISO strings. We use a fixed base to match BASE_EPOCH.
-// BASE_EPOCH = 2001-09-08T21:46:40Z ≈ just a number we can work with.
 function isoAt(offsetSec: number): string {
   return new Date((BASE_EPOCH + offsetSec) * 1000).toISOString();
 }
-
-// ─── parseSnapshots ────────────────────────────────────────────────────────────
 
 describe('parseSnapshots', () => {
   it('parses a valid JSONL string', () => {
@@ -61,8 +48,6 @@ describe('parseSnapshots', () => {
     expect(result).toHaveLength(2);
   });
 });
-
-// ─── listTrips ─────────────────────────────────────────────────────────────────
 
 describe('listTrips', () => {
   it('lists trips sorted by snapshot count descending', () => {
@@ -87,8 +72,6 @@ describe('listTrips', () => {
     expect(trip.lastSeen).toBe('2026-01-01T00:00:30Z');
   });
 });
-
-// ─── simulateTrip ──────────────────────────────────────────────────────────────
 
 describe('simulateTrip', () => {
   it('returns null when trip appears in fewer than 2 snapshots', () => {
@@ -119,17 +102,8 @@ describe('simulateTrip', () => {
   });
 
   it('computes predicted canonicalX via interpolation formula', () => {
-    // At capturedAt_S0+100s, GPS timestamp = BASE_EPOCH, predArrival = PRED_EPOCH (200s ahead)
-    // At capturedAt_S1 (S0+130s):
-    //   elapsed = (capturedAt_S1_sec - BASE_EPOCH) = (100+130) = 230s  (from GPS timestamp)
-    //   Hmm — let me be more careful.
-    //   capturedAt_S0 = isoAt(100) → epoch = BASE_EPOCH + 100
-    //   capturedAt_S1 = isoAt(130) → epoch = BASE_EPOCH + 130
-    //   pos.timestamp = BASE_EPOCH (GPS capture time)
-    //   elapsed = capturedAt_S1_sec - pos.timestamp = (BASE_EPOCH+130) - BASE_EPOCH = 130s
-    //   total   = PRED_EPOCH - pos.timestamp = PRED_EPOCH - BASE_EPOCH = 200s
-    //   t       = min(1, 130/200) = 0.65
-    //   interpX = 0.3 + 0.65 * (0.5 - 0.3) = 0.3 + 0.13 = 0.43
+    // elapsed = (BASE_EPOCH+130) - BASE_EPOCH = 130s; total = 200s; t = 0.65
+    // interpX = 0.3 + 0.65 * (0.5 - 0.3) = 0.43
     const pos = makePos({ canonicalX: 0.3, timestamp: BASE_EPOCH, predictedNextArrivalEpoch: PRED_EPOCH });
     const actual = makePos({ canonicalX: 0.35, timestamp: BASE_EPOCH + 30 });
     const snaps: SimSnapshot[] = [
@@ -140,21 +114,18 @@ describe('simulateTrip', () => {
     const [iv] = result.intervals;
     expect(iv.predictedCanonicalX).toBeCloseTo(0.43, 4);
     expect(iv.actualCanonicalX).toBe(0.35);
-    // error = predicted - actual = 0.43 - 0.35 = 0.08 (engine is ahead)
     expect(iv.error).toBeCloseTo(0.08, 4);
     expect(iv.absError).toBeCloseTo(0.08, 4);
   });
 
   it('clamps prediction at nextStopCanonicalX when elapsed > total (t=1)', () => {
-    // elapsed = 250s > total = 200s → t clamped to 1 → predicted = nextStopCanonicalX = 0.5
     const pos = makePos({ canonicalX: 0.3, timestamp: BASE_EPOCH, predictedNextArrivalEpoch: PRED_EPOCH });
     const snaps: SimSnapshot[] = [
       makeSnapshot(isoAt(0), [pos]),
-      makeSnapshot(isoAt(250), [makePos({ canonicalX: 0.48 })]), // actual past stop but we only know GPS
+      makeSnapshot(isoAt(250), [makePos({ canonicalX: 0.48 })]),
     ];
     const result = simulateTrip(snaps, 'trip-1')!;
     const [iv] = result.intervals;
-    // elapsed = capturedAt_S1 - timestamp = (BASE_EPOCH+250) - BASE_EPOCH = 250s > 200s → t=1
     expect(iv.predictedCanonicalX).toBeCloseTo(0.5, 4);
     expect(iv.clampedAtStop).toBe(true);
   });
@@ -167,7 +138,7 @@ describe('simulateTrip', () => {
     ];
     const result = simulateTrip(snaps, 'trip-1')!;
     const [iv] = result.intervals;
-    expect(iv.predictedCanonicalX).toBe(0.3); // frozen
+    expect(iv.predictedCanonicalX).toBe(0.3);
   });
 
   it('detects GPS updated (gpsUpdated=true) when timestamp changes', () => {
@@ -198,7 +169,6 @@ describe('simulateTrip', () => {
   });
 
   it('marks isZombie=true when GPS age at FROM snapshot exceeds 180s', () => {
-    // capturedAt_S0 = isoAt(200), pos.timestamp = BASE_EPOCH → age = 200s > 180s → zombie
     const snaps: SimSnapshot[] = [
       makeSnapshot(isoAt(200), [makePos({ timestamp: BASE_EPOCH })]),
       makeSnapshot(isoAt(230), [makePos({ timestamp: BASE_EPOCH })]),
@@ -211,21 +181,17 @@ describe('simulateTrip', () => {
     const snaps: SimSnapshot[] = [
       makeSnapshot(isoAt(100), [makePos({ canonicalX: 0.3 })]),
       makeSnapshot(isoAt(130), [makePos({ canonicalX: 0.4 })]),
-      makeSnapshot(isoAt(160), [makePos({ canonicalX: 0.51 })]), // 0.51 - 0.4 = 0.11 > 0.05
+      makeSnapshot(isoAt(160), [makePos({ canonicalX: 0.51 })]),
     ];
     const result = simulateTrip(snaps, 'trip-1')!;
-    expect(result.intervals[0].largeActualJump).toBe(false); // first interval has no prior
+    expect(result.intervals[0].largeActualJump).toBe(false);
     expect(result.intervals[1].largeActualJump).toBe(true);
   });
 
   it('computes correct aggregate stats', () => {
-    // Two intervals: absErrors [0.02, 0.06]
     const snaps: SimSnapshot[] = [
       makeSnapshot(isoAt(0), [makePos({ canonicalX: 0.3, timestamp: BASE_EPOCH, predictedNextArrivalEpoch: PRED_EPOCH })]),
-      // At elapsed=50s: t=50/200=0.25, pred=0.3+0.25*0.2=0.35, actual=0.33 → error=+0.02
       makeSnapshot(isoAt(50), [makePos({ canonicalX: 0.33, timestamp: BASE_EPOCH + 30 })]),
-      // At elapsed=80s from NEXT baseline: we need to set up carefully...
-      // Just check that mae = mean(absErrors)
     ];
     const result = simulateTrip(snaps, 'trip-1')!;
     expect(result.mae).toBeCloseTo(result.intervals.reduce((s, r) => s + r.absError, 0) / result.intervals.length, 6);
@@ -237,8 +203,8 @@ describe('simulateTrip', () => {
   it('counts fresh and stale intervals correctly', () => {
     const snaps: SimSnapshot[] = [
       makeSnapshot(isoAt(0),  [makePos({ timestamp: BASE_EPOCH })]),
-      makeSnapshot(isoAt(30), [makePos({ timestamp: BASE_EPOCH + 30 })]), // fresh
-      makeSnapshot(isoAt(60), [makePos({ timestamp: BASE_EPOCH + 30 })]), // frozen
+      makeSnapshot(isoAt(30), [makePos({ timestamp: BASE_EPOCH + 30 })]),
+      makeSnapshot(isoAt(60), [makePos({ timestamp: BASE_EPOCH + 30 })]),
     ];
     const result = simulateTrip(snaps, 'trip-1')!;
     expect(result.freshIntervals).toBe(1);
@@ -248,11 +214,10 @@ describe('simulateTrip', () => {
   it('handles a trip that is absent from some snapshots (gaps)', () => {
     const snaps: SimSnapshot[] = [
       makeSnapshot(isoAt(0),  [makePos({ tripId: 'trip-1' })]),
-      makeSnapshot(isoAt(30), []),                                    // trip absent
+      makeSnapshot(isoAt(30), []),
       makeSnapshot(isoAt(60), [makePos({ tripId: 'trip-1', canonicalX: 0.4 })]),
     ];
     const result = simulateTrip(snaps, 'trip-1')!;
-    // Only 2 presence records → 1 interval, gap snapshot is skipped
     expect(result.presenceCount).toBe(2);
     expect(result.intervals).toHaveLength(1);
     expect(result.intervals[0].intervalSec).toBeCloseTo(60, 1);

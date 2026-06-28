@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { VehiclePosition } from '@takemethere/shared';
-import type { TripUpdateEntry } from './decoder.js';
+import type { TripUpdateEntry } from '../../../src/stream/ingest/position_decoder.js';
 
-// Mock ioredis before importing publisher
-vi.mock('../redis/client.js', () => ({
+vi.mock('../../../src/redis/client.js', () => ({
   redis: { set: vi.fn().mockResolvedValue('OK'), keys: vi.fn().mockResolvedValue([]) },
   redisSub: { subscribe: vi.fn(), on: vi.fn() },
 }));
@@ -13,19 +12,19 @@ import {
   setLineStopCoords,
   setGlobalStopNames,
   setTripDirections,
-  publishPositions,
   getPrevNextStopNames,
-  getPublishStats,
   setTripStopTimesCache,
   buildStopTimeNameIndex,
-} from './publisher.js';
-import type { StopData, StopTimeEntry } from './publisher.js';
+} from '../../../src/stream/engine/static_data.js';
+import type { StopData, StopTimeEntry } from '../../../src/stream/engine/static_data.js';
+import {
+  publishPositions,
+  getPublishStats,
+} from '../../../src/stream/output/publisher.js';
 
-// Mock Socket.io server
 function makeIo() {
   const emitted: Record<string, unknown[][]> = {};
   const rooms = new Map<string, Set<string>>();
-  // Simulate a room with subscribers
   rooms.set('line:belgrave', new Set(['sock1']));
   rooms.set('line:all', new Set(['sock2']));
   return {
@@ -39,7 +38,6 @@ function makeIo() {
   } as any;
 }
 
-// Minimal stop list for belgrave line (normalized canonicalX from 0 to 1)
 const BELGRAVE_STOPS: StopData[] = [
   { stopId: '12261', stopName: 'Richmond Station',      canonicalX: 0.00, lat: -37.8245, lon: 144.9985 },
   { stopId: '12249', stopName: 'Burnley Station',       canonicalX: 0.10, lat: -37.8254, lon: 145.0124 },
@@ -50,14 +48,13 @@ const BELGRAVE_STOPS: StopData[] = [
   { stopId: '12207', stopName: 'East Camberwell Station', canonicalX: 0.60, lat: -37.8233, lon: 145.0671 },
 ];
 
-// A second stop ID for Camberwell used by direction_id=1 trips (the mismatch case)
 const CAMBERWELL_ALT_ID = '11208';
 
 function makeVp(overrides: Partial<VehiclePosition> = {}): VehiclePosition {
   return {
     tripId: 'trip-001',
     routeId: 'route-belgrave',
-    lat: -37.8210,       // roughly between Hawthorn and Glenferrie
+    lat: -37.8210,
     lon: 145.0310,
     bearing: 90,
     speed: 20,
@@ -73,7 +70,7 @@ function makeTu(overrides: Partial<TripUpdateEntry> = {}): TripUpdateEntry {
     tripId: 'trip-001',
     routeId: 'route-belgrave',
     delay: 60,
-    nextStopId: '12242', // Glenferrie (direct match in stops)
+    nextStopId: '12242',
     nextStopSeq: 4,
     nextArrivalEpoch: Math.floor(Date.now() / 1000) + 90,
     allStopUpdates: [],
@@ -93,7 +90,7 @@ beforeEach(() => {
     ['12242', 'Glenferrie Station'],
     ['12239', 'Auburn Station'],
     ['11209', 'Camberwell Station'],
-    [CAMBERWELL_ALT_ID, 'Camberwell Station'], // alt stopId for Camberwell
+    [CAMBERWELL_ALT_ID, 'Camberwell Station'],
     ['12207', 'East Camberwell Station'],
   ]));
 });
@@ -106,7 +103,7 @@ describe('publishPositions', () => {
   });
 
   it('writes vehicle to Redis', async () => {
-    const { redis } = await import('../redis/client.js');
+    const { redis } = await import('../../../src/redis/client.js');
     const io = makeIo();
     await publishPositions(io, [makeVp()], new Map([['trip-001', makeTu()]]));
     expect(vi.mocked(redis.set)).toHaveBeenCalledWith(
@@ -128,17 +125,14 @@ describe('publishPositions', () => {
 
   it('resolves nextStopCanonicalX when TU nextStopId is in the stop list', async () => {
     const io = makeIo();
-    // nextStopId=12242 (Glenferrie) is in BELGRAVE_STOPS with canonicalX=0.30
     await publishPositions(io, [makeVp()], new Map([['trip-001', makeTu({ nextStopId: '12242' })]]));
     const [[positions]] = io._emitted['line:belgrave:vehicles:update'];
     const pos = (positions as any[])[0];
     expect(pos.nextStopCanonicalX).toBe(0.30);
   });
 
-  it('resolves nextStopCanonicalX via name fallback when stopId differs (express train / alt platform)', async () => {
+  it('resolves nextStopCanonicalX via name fallback when stopId differs', async () => {
     const io = makeIo();
-    // CAMBERWELL_ALT_ID (11208) is NOT in BELGRAVE_STOPS directly,
-    // but globalStopNames maps it to 'Camberwell Station' which resolves to canonicalX=0.50
     await publishPositions(io, [makeVp()], new Map([
       ['trip-001', makeTu({ nextStopId: CAMBERWELL_ALT_ID })],
     ]));
@@ -149,15 +143,12 @@ describe('publishPositions', () => {
 
   it('falls back to GPS-derived next stop when TU stop ID is completely unresolvable', async () => {
     const io = makeIo();
-    // 'totally-unknown-stop' is not in BELGRAVE_STOPS and not in globalStopNames,
-    // so TU lookup and name fallback both fail. GPS projects the train (lat≈−37.821, lon≈145.031)
-    // between Hawthorn (cx=0.20) and Glenferrie (cx=0.30), so GPS fallback picks Glenferrie.
     await publishPositions(io, [makeVp()], new Map([
       ['trip-001', makeTu({ nextStopId: 'totally-unknown-stop' })],
     ]));
     const [[positions]] = io._emitted['line:belgrave:vehicles:update'];
     const pos = (positions as any[])[0];
-    expect(pos.nextStopCanonicalX).toBe(0.30); // Glenferrie — GPS fallback
+    expect(pos.nextStopCanonicalX).toBe(0.30);
   });
 
   it('skips vehicles whose routeId is not in the route map', async () => {
@@ -190,16 +181,13 @@ describe('publishPositions', () => {
   });
 
   it('express train: skips Burnley+Hawthorn and routes direct to Glenferrie', async () => {
-    // The express trip skips stops between Richmond and Glenferrie.
-    // TU's nextStopId = Glenferrie (12242), which should resolve directly.
     const io = makeIo();
-    const expressVp = makeVp({ lat: -37.8220, lon: 145.0150 }); // GPS between Richmond and Glenferrie
+    const expressVp = makeVp({ lat: -37.8220, lon: 145.0150 });
     await publishPositions(io, [expressVp], new Map([
       ['trip-001', makeTu({ nextStopId: '12242', delay: 0 })],
     ]));
     const [[positions]] = io._emitted['line:belgrave:vehicles:update'];
     const pos = (positions as any[])[0];
-    // canonicalX should be between Richmond (0.0) and Glenferrie (0.3)
     expect(pos.canonicalX).toBeGreaterThanOrEqual(0);
     expect(pos.canonicalX).toBeLessThan(0.3);
     expect(pos.nextStopCanonicalX).toBe(0.30);
@@ -209,7 +197,6 @@ describe('publishPositions', () => {
 describe('getPrevNextStopNames', () => {
   it('returns correct prev and next stop for a mid-line position', () => {
     const { prevStopName, nextStopName } = getPrevNextStopNames('belgrave', 0.25, '12242');
-    // canonicalX=0.25 → between Hawthorn (0.20) and Glenferrie (0.30)
     expect(prevStopName).toBe('Hawthorn Station');
     expect(nextStopName).toBe('Glenferrie Station');
   });
@@ -236,18 +223,15 @@ describe('getPrevNextStopNames', () => {
   });
 });
 
-// ─── buildStopTimeNameIndex ───────────────────────────────────────────────────
-
 describe('buildStopTimeNameIndex', () => {
   const entries: StopTimeEntry[] = [
-    { seq: 1, stopId: '12261', arrivalSec: 36000, departureSec: 36000 }, // Richmond
-    { seq: 2, stopId: '12249', arrivalSec: 36060, departureSec: 36060 }, // Burnley
-    { seq: 3, stopId: '11208', arrivalSec: 36120, departureSec: 36120 }, // Camberwell alt ID
+    { seq: 1, stopId: '12261', arrivalSec: 36000, departureSec: 36000 },
+    { seq: 2, stopId: '12249', arrivalSec: 36060, departureSec: 36060 },
+    { seq: 3, stopId: '11208', arrivalSec: 36120, departureSec: 36120 },
   ];
 
   it('indexes entries by normalised stop name', () => {
     const idx = buildStopTimeNameIndex(entries);
-    // globalStopNames maps 11208 → 'Camberwell Station' (set in beforeEach)
     expect(idx.has('camberwell')).toBe(true);
     expect(idx.get('camberwell')?.stopId).toBe('11208');
   });
@@ -263,17 +247,14 @@ describe('buildStopTimeNameIndex', () => {
   });
 });
 
-// ─── Trip-terminus override ───────────────────────────────────────────────────
-
 describe('publisher trip-terminus override', () => {
-  // Trip terminates at Camberwell (11209). Stop_times ends there.
   const STOP_TIMES_TERMINUS_CAMBERWELL: StopTimeEntry[] = [
     { seq: 1, stopId: '12261', arrivalSec: 36000, departureSec: 36000 },
     { seq: 2, stopId: '12249', arrivalSec: 36060, departureSec: 36060 },
     { seq: 3, stopId: '12245', arrivalSec: 36120, departureSec: 36120 },
     { seq: 4, stopId: '12242', arrivalSec: 36180, departureSec: 36180 },
     { seq: 5, stopId: '12239', arrivalSec: 36240, departureSec: 36240 },
-    { seq: 6, stopId: '11209', arrivalSec: 36300, departureSec: 36300 }, // TERMINUS
+    { seq: 6, stopId: '11209', arrivalSec: 36300, departureSec: 36300 },
   ];
 
   beforeEach(() => {
@@ -281,13 +262,11 @@ describe('publisher trip-terminus override', () => {
     setTripDirections(new Map([['trip-001', 0]]));
   });
 
-  it('sets nextStopId=null when TU claims a stop beyond the trip terminus (Camberwell→Auburn overrun)', async () => {
-    // GPS places train at Camberwell. TU (incorrectly) reports next stop = East Camberwell.
-    // The trip ends at Camberwell, so publisher must override nextStop to null.
+  it('sets nextStopId=null when TU claims a stop beyond the trip terminus', async () => {
     const io = makeIo();
-    const vp = makeVp({ lat: -37.8248, lon: 145.0574 }); // Camberwell coords
+    const vp = makeVp({ lat: -37.8248, lon: 145.0574 });
     await publishPositions(io, [vp], new Map([
-      ['trip-001', makeTu({ nextStopId: '12207' /* East Camberwell */ })],
+      ['trip-001', makeTu({ nextStopId: '12207' })],
     ]));
     const [[positions]] = io._emitted['line:belgrave:vehicles:update'];
     const pos = (positions as any[])[0];
@@ -295,37 +274,32 @@ describe('publisher trip-terminus override', () => {
     expect(pos.nextStopCanonicalX).toBe(-1);
   });
 
-  it('sets nextStopId=null when stop_times terminus uses an alt platform ID (name fallback in terminus check)', async () => {
-    // Same scenario but the trip's stop_times has the alt platform ID (11208) as the terminus
-    // rather than the canonical one (11209). The terminus check must name-match to catch it.
+  it('sets nextStopId=null when stop_times terminus uses an alt platform ID', async () => {
     const STOP_TIMES_ALT_TERMINUS: StopTimeEntry[] = [
       { seq: 1, stopId: '12261', arrivalSec: 36000, departureSec: 36000 },
       { seq: 2, stopId: '12249', arrivalSec: 36060, departureSec: 36060 },
       { seq: 3, stopId: '12245', arrivalSec: 36120, departureSec: 36120 },
       { seq: 4, stopId: '12242', arrivalSec: 36180, departureSec: 36180 },
       { seq: 5, stopId: '12239', arrivalSec: 36240, departureSec: 36240 },
-      { seq: 6, stopId: CAMBERWELL_ALT_ID, arrivalSec: 36300, departureSec: 36300 }, // TERMINUS via alt ID
+      { seq: 6, stopId: CAMBERWELL_ALT_ID, arrivalSec: 36300, departureSec: 36300 },
     ];
     setTripStopTimesCache('trip-001', STOP_TIMES_ALT_TERMINUS);
 
-    // GPS at Camberwell, TU says next stop is East Camberwell (overrun past terminus)
     const io = makeIo();
     const vp = makeVp({ lat: -37.8248, lon: 145.0574 });
     await publishPositions(io, [vp], new Map([
-      ['trip-001', makeTu({ nextStopId: '12207' /* East Camberwell */ })],
+      ['trip-001', makeTu({ nextStopId: '12207' })],
     ]));
     const [[positions]] = io._emitted['line:belgrave:vehicles:update'];
     const pos = (positions as any[])[0];
-    // Terminus check should fire via name fallback (stop_times has 11208, prevStop has 11209)
     expect(pos.nextStopId).toBeNull();
     expect(pos.nextStopCanonicalX).toBe(-1);
   });
 
-  it('does NOT apply terminus override for a non-terminus stop (mid-line train still gets nextStop)', async () => {
-    // Train between Hawthorn and Glenferrie — trip still has stops ahead.
+  it('does NOT apply terminus override for a non-terminus stop', async () => {
     const io = makeIo();
     await publishPositions(io, [makeVp()], new Map([
-      ['trip-001', makeTu({ nextStopId: '12242' /* Glenferrie */ })],
+      ['trip-001', makeTu({ nextStopId: '12242' })],
     ]));
     const [[positions]] = io._emitted['line:belgrave:vehicles:update'];
     const pos = (positions as any[])[0];
@@ -335,7 +309,7 @@ describe('publisher trip-terminus override', () => {
 
   it('prevStopName is Camberwell and nextStopName is null at terminus', async () => {
     const io = makeIo();
-    const vp = makeVp({ lat: -37.8248, lon: 145.0574 }); // Camberwell
+    const vp = makeVp({ lat: -37.8248, lon: 145.0574 });
     await publishPositions(io, [vp], new Map([
       ['trip-001', makeTu({ nextStopId: '12207' })],
     ]));
@@ -346,19 +320,14 @@ describe('publisher trip-terminus override', () => {
   });
 });
 
-// ─── nextArrivalEpoch — platform ID mismatch ─────────────────────────────────
-
 describe('nextArrivalEpoch with platform stop_id mismatch', () => {
   const now = Math.floor(Date.now() / 1000);
-  // Trip uses '11208' (alt Camberwell platform) and '12242' (Glenferrie) in stop_times.
-  // The line_station_order view has '11209' for Camberwell and '12242' for Glenferrie.
-  // Glenferrie matches by stopId directly; only Camberwell needs the name fallback.
   const STOP_TIMES: StopTimeEntry[] = [
-    { seq: 1, stopId: '12261', arrivalSec: 36000, departureSec: 36010 }, // Richmond
-    { seq: 2, stopId: '12249', arrivalSec: 36060, departureSec: 36065 }, // Burnley
-    { seq: 3, stopId: '12245', arrivalSec: 36120, departureSec: 36125 }, // Hawthorn
-    { seq: 4, stopId: '12242', arrivalSec: 36180, departureSec: 36190 }, // Glenferrie — direct match
-    { seq: 5, stopId: '11208', arrivalSec: 36300, departureSec: 36310 }, // Camberwell alt ID — name fallback
+    { seq: 1, stopId: '12261', arrivalSec: 36000, departureSec: 36010 },
+    { seq: 2, stopId: '12249', arrivalSec: 36060, departureSec: 36065 },
+    { seq: 3, stopId: '12245', arrivalSec: 36120, departureSec: 36125 },
+    { seq: 4, stopId: '12242', arrivalSec: 36180, departureSec: 36190 },
+    { seq: 5, stopId: '11208', arrivalSec: 36300, departureSec: 36310 },
   ];
 
   beforeEach(() => {
@@ -366,7 +335,6 @@ describe('nextArrivalEpoch with platform stop_id mismatch', () => {
   });
 
   it('nextArrivalEpoch is non-zero when next stop matches by stopId', async () => {
-    // Train heading toward Glenferrie (stopId=12242 — direct match in stop_times)
     const io = makeIo();
     await publishPositions(io, [makeVp()], new Map([
       ['trip-001', makeTu({ nextStopId: '12242', delay: 0 })],
@@ -376,14 +344,10 @@ describe('nextArrivalEpoch with platform stop_id mismatch', () => {
     expect(pos.nextArrivalEpoch).toBeGreaterThan(0);
   });
 
-  it('nextArrivalEpoch is non-zero when next stop requires name fallback (alt platform ID)', async () => {
-    // TU says next stop is Camberwell (11209 in line_station_order), but the trip's
-    // stop_times uses the alt platform ID (11208). The name fallback must resolve it
-    // so that nextArrivalEpoch is populated — without this, the streamer returns
-    // a static canonicalX for every train.
+  it('nextArrivalEpoch is non-zero when next stop requires name fallback', async () => {
     const io = makeIo();
     await publishPositions(io, [makeVp({ lat: -37.822, lon: 145.045 })], new Map([
-      ['trip-001', makeTu({ nextStopId: '11209', delay: 0 })], // TU uses canonical platform ID
+      ['trip-001', makeTu({ nextStopId: '11209', delay: 0 })],
     ]));
     const [[positions]] = io._emitted['line:belgrave:vehicles:update'];
     const pos = (positions as any[])[0];

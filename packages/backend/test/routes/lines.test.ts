@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { buildApp } from '../app.js';
+import { buildApp } from '../../src/app.js';
 
 let fastify: FastifyInstance;
 
@@ -67,8 +67,6 @@ describe('GET /api/lines', () => {
   });
 
   it('belgrave stop canonicalX values are monotonically non-decreasing', async () => {
-    // Non-branching lines should always be monotonic.
-    // Branching lines (Williamstown, Flemington) may have non-monotonic stops by design.
     const res = await fastify.inject({ method: 'GET', url: '/api/lines' });
     const lines = JSON.parse(res.body).lines;
     const belgrave = lines.find((l: any) => l.lineId === 'belgrave');

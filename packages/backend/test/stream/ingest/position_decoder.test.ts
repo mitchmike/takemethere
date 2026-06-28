@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { decodeFeed, extractVehiclePositions, extractTripUpdates } from './decoder.js';
+import { decodeFeed, extractVehiclePositions, extractTripUpdates } from '../../../src/stream/ingest/position_decoder.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURES = path.resolve(__dirname, '../../test/fixtures');
+const FIXTURES = path.resolve(__dirname, '../../fixtures');
 
 const vpBuf = fs.readFileSync(path.join(FIXTURES, 'vehicle-positions.pb'));
 const tuBuf = fs.readFileSync(path.join(FIXTURES, 'trip-updates.pb'));
@@ -57,7 +57,6 @@ describe('extractVehiclePositions', () => {
   });
 
   it('all positions are in Melbourne area', () => {
-    // Melbourne bounding box: lat -38.5 to -37.4, lon 144.5 to 145.6
     for (const v of vehicles) {
       expect(v.lat).toBeGreaterThan(-38.5);
       expect(v.lat).toBeLessThan(-37.4);

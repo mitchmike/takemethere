@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { buildApp } from '../app.js';
+import { buildApp } from '../../src/app.js';
 
 let fastify: FastifyInstance;
 
@@ -12,8 +12,6 @@ beforeAll(async () => {
 afterAll(async () => {
   await fastify.close();
 });
-
-// ─── GET /admin/status ────────────────────────────────────────────────────────
 
 describe('GET /admin/status', () => {
   it('returns 200', async () => {
@@ -32,7 +30,6 @@ describe('GET /admin/status', () => {
   it('gtfsRt.running reflects GTFS_RT_ENABLED env var', async () => {
     const res = await fastify.inject({ method: 'GET', url: '/admin/status' });
     const body = JSON.parse(res.body);
-    // GTFS_RT_ENABLED=true in .env — poller auto-starts on app ready
     const expected = process.env.GTFS_RT_ENABLED === 'true';
     expect(body.gtfsRt.running).toBe(expected);
   });
@@ -48,8 +45,6 @@ describe('GET /admin/status', () => {
     expect(tables).toContain('line_station_order');
   });
 });
-
-// ─── GET /admin/data-freshness ────────────────────────────────────────────────
 
 describe('GET /admin/data-freshness', () => {
   it('returns 200', async () => {
@@ -84,8 +79,6 @@ describe('GET /admin/data-freshness', () => {
   });
 });
 
-// ─── GET /admin ───────────────────────────────────────────────────────────────
-
 describe('GET /admin', () => {
   it('returns 200 text/html', async () => {
     const res = await fastify.inject({ method: 'GET', url: '/admin' });
@@ -103,8 +96,6 @@ describe('GET /admin', () => {
 
   it('Stop Poller button is initially disabled', async () => {
     const res = await fastify.inject({ method: 'GET', url: '/admin' });
-    // btn-stop must carry the disabled attribute in HTML so the button is
-    // visually correct before the first fetchStatus() call completes.
     expect(res.body).toContain('id="btn-stop"');
     const btnStopIdx = res.body.indexOf('id="btn-stop"');
     const buttonTag = res.body.substring(res.body.lastIndexOf('<button', btnStopIdx), btnStopIdx + 80);
@@ -114,33 +105,24 @@ describe('GET /admin', () => {
   it('embedded JavaScript has no syntax errors', async () => {
     const res = await fastify.inject({ method: 'GET', url: '/admin' });
     const html = res.body;
-
     const scriptStart = html.indexOf('<script>');
     const scriptEnd = html.indexOf('</script>');
     expect(scriptStart).toBeGreaterThan(-1);
     expect(scriptEnd).toBeGreaterThan(scriptStart);
-
     const script = html.substring(scriptStart + 8, scriptEnd);
-
-    // new Function() will throw SyntaxError if the JS is invalid
     expect(() => new Function(script)).not.toThrow();
   });
 });
-
-// ─── GET /api/lines response shape (used by admin page) ──────────────────────
 
 describe('GET /api/lines response shape', () => {
   it('returns { lines: [...] } not a bare array', async () => {
     const res = await fastify.inject({ method: 'GET', url: '/api/lines' });
     const body = JSON.parse(res.body);
-    // Admin page calls (linesData.lines ?? []).forEach — must be a property, not root array
     expect(body).toHaveProperty('lines');
     expect(Array.isArray(body.lines)).toBe(true);
     expect(Array.isArray(body)).toBe(false);
   });
 });
-
-// ─── GET /admin/patronage/status ──────────────────────────────────────────────
 
 describe('GET /admin/patronage/status', () => {
   it('returns 200 with loading:false initially', async () => {
@@ -151,8 +133,6 @@ describe('GET /admin/patronage/status', () => {
   });
 });
 
-// ─── GET /admin/shapes/status ─────────────────────────────────────────────────
-
 describe('GET /admin/shapes/status', () => {
   it('returns 200 with loading:false initially', async () => {
     const res = await fastify.inject({ method: 'GET', url: '/admin/shapes/status' });
@@ -162,11 +142,8 @@ describe('GET /admin/shapes/status', () => {
   });
 });
 
-// ─── POST /admin/gtfs-rt/start + stop ─────────────────────────────────────────
-
 describe('POST /admin/gtfs-rt/start', () => {
   afterAll(async () => {
-    // Restore poller to its original state based on env config
     if (process.env.GTFS_RT_ENABLED !== 'true') {
       await fastify.inject({ method: 'POST', url: '/admin/gtfs-rt/stop' });
     }
@@ -220,7 +197,6 @@ describe('POST /admin/gtfs-rt/stop', () => {
 
 describe('POST /admin/gtfs-rt/start → stop → start cycle', () => {
   afterAll(async () => {
-    // Leave poller stopped so tests don't leave background processes
     await fastify.inject({ method: 'POST', url: '/admin/gtfs-rt/stop' });
   });
 
@@ -239,8 +215,6 @@ describe('POST /admin/gtfs-rt/start → stop → start cycle', () => {
   });
 });
 
-// ─── GET /admin/rt/vehicles ────────────────────────────────────────────────────
-
 describe('GET /admin/rt/vehicles', () => {
   it('returns 200', async () => {
     const res = await fastify.inject({ method: 'GET', url: '/admin/rt/vehicles' });
@@ -257,7 +231,7 @@ describe('GET /admin/rt/vehicles', () => {
   it('each vehicle has required LivePosition fields', async () => {
     const res = await fastify.inject({ method: 'GET', url: '/admin/rt/vehicles' });
     const { vehicles } = JSON.parse(res.body);
-    if (vehicles.length === 0) return; // no live data available in test env — skip shape check
+    if (vehicles.length === 0) return;
 
     const v = vehicles[0];
     expect(typeof v.tripId).toBe('string');
