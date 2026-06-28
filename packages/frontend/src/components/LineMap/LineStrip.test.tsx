@@ -49,10 +49,14 @@ function makeTrain(overrides: Partial<LivePosition> = {}): LivePosition {
 const BASE_PROPS = {
   line: MOCK_LINE,
   trains: [],
+  allPositions: new Map(),
   stripIndex: 0,
   stripHeight: 100,
   svgWidth: 800,
   svgHeight: 620,
+  viewport: null,
+  selectedTripId: null,
+  showTimes: false,
 };
 
 describe('LineStrip', () => {
