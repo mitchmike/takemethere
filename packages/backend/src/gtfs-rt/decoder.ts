@@ -3,13 +3,24 @@ const { transit_realtime } = gtfsRt;
 import type { VehiclePosition } from '@takemethere/shared';
 import { VehicleStopStatus } from '@takemethere/shared';
 
+/** One entry in the TU's stopTimeUpdate array. */
+export interface StopTimeUpdate {
+  stopId: string;
+  stopSeq: number;
+  arrivalEpoch: number;    // adjusted arrival epoch seconds (0 if not provided)
+  departureEpoch: number;  // adjusted departure epoch seconds (0 if not provided)
+  arrivalDelay: number;    // arrival delay seconds (0 if not provided)
+  departureDelay: number;  // departure delay seconds (0 if not provided)
+}
+
 export interface TripUpdateEntry {
   tripId: string;
   routeId: string | null;
-  delay: number;               // seconds (from TU-level delay field; 0 if not set)
-  nextStopId: string | null;   // stopId of next upcoming stop
+  delay: number;               // seconds late (from first future stop; 0 if not set)
+  nextStopId: string | null;   // first future stop
   nextStopSeq: number | null;
-  nextArrivalEpoch: number;    // absolute epoch seconds (with delay); 0 if unavailable
+  nextArrivalEpoch: number;    // adjusted epoch for next stop; 0 if unavailable
+  allStopUpdates: StopTimeUpdate[]; // all future stops from TU (from nextStop onward)
 }
 
 export function decodeFeed(buffer: Buffer): transit_realtime.FeedMessage {
@@ -44,19 +55,35 @@ export function extractTripUpdates(feed: transit_realtime.FeedMessage): Map<stri
     const tripId = tu.trip.tripId;
     const routeId = tu.trip.routeId ?? null;
 
-    // stopTimeUpdate is sorted by stopSequence; first entry = next upcoming stop
-    const next = tu.stopTimeUpdate?.[0];
+    // Find first future stop (60s buffer so trains currently at a stop aren't skipped).
+    // PTV includes already-passed stops; naively taking [0] gives past arrival epochs.
+    const nowEpoch = Date.now() / 1000;
+    const rawUpdates = tu.stopTimeUpdate ?? [];
+
+    const nextIdx = rawUpdates.findIndex(stu => {
+      const t = stu.arrival?.time ?? stu.departure?.time;
+      return t && Number(t) > nowEpoch - 60;
+    });
+
+    const next = nextIdx >= 0 ? rawUpdates[nextIdx] : rawUpdates[0];
     const nextStopId = next?.stopId ?? null;
     const nextStopSeq = next?.stopSequence ?? null;
-
-    // arrival.time is a Long — convert to number (epoch seconds)
     const rawTime = next?.arrival?.time ?? next?.departure?.time;
     const nextArrivalEpoch = rawTime ? Number(rawTime) : 0;
-
-    // Use the arrival delay of the next stop as the current delay
     const delay = next?.arrival?.delay ?? next?.departure?.delay ?? 0;
 
-    result.set(tripId, { tripId, routeId, delay, nextStopId, nextStopSeq, nextArrivalEpoch });
+    // Collect all future stop updates (nextStop onward)
+    const futureSlice = nextIdx >= 0 ? rawUpdates.slice(nextIdx) : rawUpdates;
+    const allStopUpdates: StopTimeUpdate[] = futureSlice.map(stu => ({
+      stopId: stu.stopId ?? '',
+      stopSeq: stu.stopSequence ?? 0,
+      arrivalEpoch: stu.arrival?.time ? Number(stu.arrival.time) : 0,
+      departureEpoch: stu.departure?.time ? Number(stu.departure.time) : 0,
+      arrivalDelay: stu.arrival?.delay ?? 0,
+      departureDelay: stu.departure?.delay ?? 0,
+    }));
+
+    result.set(tripId, { tripId, routeId, delay, nextStopId, nextStopSeq, nextArrivalEpoch, allStopUpdates });
   }
   return result;
 }

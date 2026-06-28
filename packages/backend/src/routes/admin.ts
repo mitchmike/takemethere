@@ -4,7 +4,11 @@ import { fileURLToPath } from 'url';
 import { pool } from '../db/client.js';
 import { redis } from '../redis/client.js';
 import { startPoller, stopPoller, getPollerStatus } from '../gtfs-rt/poller.js';
-import { setRouteLineMap, setLineStopCoords, setGlobalStopNames, getPrevNextStopNames } from '../gtfs-rt/publisher.js';
+import { startStreamer, stopStreamer } from '../gtfs-rt/streamer.js';
+import { setRouteLineMap, setLineStopCoords, setGlobalStopNames, setDwellStats, getPrevNextStopNames } from '../gtfs-rt/publisher.js';
+import { loadPatronageData, loadDwellStatsFromDb } from '../gtfs-static/patronage-loader.js';
+import { loadLineShapes } from '../gtfs-static/shapes-loader.js';
+import { getDataFreshness, markLoaded } from '../gtfs-static/freshness.js';
 import { getLines } from '../db/queries/lines.js';
 import type { LivePosition } from '@takemethere/shared';
 import type { Server } from 'socket.io';
@@ -75,8 +79,8 @@ function spawnLoaderWorker(): void {
       loadState.loading = false;
       loadState.lastLoadAt = new Date().toISOString();
       loadState.currentStep = null;
-      // Refresh route→line map so RT poller picks up new data immediately
       reloadMaps().catch(err => console.error('[admin] Failed to reload maps:', err));
+      markLoaded(pool, 'gtfs_static').catch(() => { /* migration 003 may not exist yet */ });
     }
     if (msg.error) {
       loadState.loading = false;
@@ -128,11 +132,13 @@ export async function adminRoutes(fastify: FastifyInstance, { io }: { io: Server
 
   fastify.post('/admin/gtfs-rt/start', async (_req, reply) => {
     startPoller(io);
+    startStreamer(io);
     return reply.send({ ok: true, status: getPollerStatus() });
   });
 
   fastify.post('/admin/gtfs-rt/stop', async (_req, reply) => {
     stopPoller();
+    stopStreamer();
     return reply.send({ ok: true, status: getPollerStatus() });
   });
 
@@ -149,11 +155,14 @@ export async function adminRoutes(fastify: FastifyInstance, { io }: { io: Server
           pos.lineId, pos.canonicalX, pos.nextStopId,
         );
 
-        // Estimated position between prev and next stop
+        // Estimated position between prev and next stop — mirrors streamer logic
+        const arrivalEpoch = pos.predictedNextArrivalEpoch > 0
+          ? pos.predictedNextArrivalEpoch
+          : pos.nextArrivalEpoch;
         let estimatedPct: number | null = null;
-        if (pos.nextArrivalEpoch > 0 && pos.nextStopCanonicalX >= 0 && pos.nextStopCanonicalX !== pos.canonicalX) {
+        if (arrivalEpoch > pos.timestamp && pos.nextStopCanonicalX >= 0 && pos.nextStopCanonicalX !== pos.canonicalX) {
           const elapsed = nowEpoch - pos.timestamp;
-          const total = pos.nextArrivalEpoch - pos.timestamp;
+          const total = arrivalEpoch - pos.timestamp;
           if (total > 0) {
             const t = Math.min(1, Math.max(0, elapsed / total));
             estimatedPct = Math.round(t * 100);
@@ -179,6 +188,127 @@ export async function adminRoutes(fastify: FastifyInstance, { io }: { io: Server
     loadState.lastError = null;
     reply.send({ ok: true, message: 'Load started' });
     spawnLoaderWorker();
+  });
+
+  // ── Patronage / dwell endpoints ──────────────────────────────────────────────
+
+  const patronageState = {
+    loading: false,
+    lastLoadAt: null as string | null,
+    lastError: null as string | null,
+    log: [] as string[],
+  };
+
+  fastify.post('/admin/patronage/load', async (_req, reply) => {
+    if (patronageState.loading) return reply.code(409).send({ error: 'Load already in progress' });
+    patronageState.loading = true;
+    patronageState.lastError = null;
+    patronageState.log = [];
+    reply.send({ ok: true, message: 'Patronage load started' });
+
+    loadPatronageData(pool, msg => {
+      patronageState.log.push(msg);
+      console.log('[patronage]', msg);
+    })
+      .then(async () => {
+        patronageState.lastLoadAt = new Date().toISOString();
+        patronageState.loading = false;
+        const dwell = await loadDwellStatsFromDb(pool);
+        setDwellStats(dwell);
+        await markLoaded(pool, 'patronage').catch(() => { /* migration 003 may not exist yet */ });
+        console.log(`[patronage] Done. Loaded dwell stats for ${dwell.size} stops.`);
+      })
+      .catch((err: Error) => {
+        patronageState.lastError = err.message;
+        patronageState.loading = false;
+        console.error('[patronage] Failed:', err.message);
+      });
+  });
+
+  fastify.get('/admin/patronage/status', async (_req, reply) => {
+    return reply.send(patronageState);
+  });
+
+  fastify.get('/admin/patronage/dwell', async (req, reply) => {
+    const lineId = (req.query as Record<string, string>).line;
+    const query = lineId
+      ? `SELECT sds.stop_id, s.stop_name, sds.lines_at_stop, sds.per_line_pax_annual,
+                sds.busyness_score, sds.base_dwell_sec, sds.peak_dwell_sec, sds.offpeak_dwell_sec,
+                sds.peak_gap_sec, sds.offpeak_gap_sec, sds.computed_at
+         FROM stop_dwell_stats sds
+         JOIN stops s ON s.stop_id = sds.stop_id
+         WHERE sds.line_id = $1
+         ORDER BY sds.busyness_score DESC`
+      : `SELECT sds.stop_id, s.stop_name, sds.line_id, sds.lines_at_stop, sds.per_line_pax_annual,
+                sds.busyness_score, sds.base_dwell_sec, sds.peak_dwell_sec, sds.offpeak_dwell_sec,
+                sds.computed_at
+         FROM stop_dwell_stats sds
+         JOIN stops s ON s.stop_id = sds.stop_id
+         ORDER BY sds.busyness_score DESC
+         LIMIT 50`;
+
+    const { rows } = await pool.query(lineId ? query : query, lineId ? [lineId] : []);
+    const { rows: patRows } = await pool.query(
+      `SELECT COUNT(*)::int AS matched, MAX(data_year) AS year, MAX(loaded_at) AS loaded_at FROM station_patronage`
+    );
+    return reply.send({ rows, patronageMeta: patRows[0] });
+  });
+
+  // ── Line shapes endpoints ────────────────────────────────────────────────────
+
+  const shapesState = {
+    loading: false,
+    lastLoadAt: null as string | null,
+    lastError: null as string | null,
+    log: [] as string[],
+  };
+
+  fastify.post('/admin/shapes/load', async (_req, reply) => {
+    if (shapesState.loading) return reply.code(409).send({ error: 'Load already in progress' });
+    shapesState.loading = true;
+    shapesState.lastError = null;
+    shapesState.log = [];
+    reply.send({ ok: true, message: 'Shape load started' });
+
+    loadLineShapes(pool, msg => {
+      shapesState.log.push(msg);
+      console.log('[shapes]', msg);
+    })
+      .then(async () => {
+        shapesState.lastLoadAt = new Date().toISOString();
+        shapesState.loading = false;
+        await markLoaded(pool, 'line_shapes').catch(() => { /* migration 003 may not exist yet */ });
+        console.log('[shapes] Done.');
+      })
+      .catch((err: Error) => {
+        shapesState.lastError = err.message;
+        shapesState.loading = false;
+        console.error('[shapes] Failed:', err.message);
+      });
+  });
+
+  fastify.get('/admin/shapes/status', async (_req, reply) => {
+    return reply.send(shapesState);
+  });
+
+  // ── Data freshness endpoint ──────────────────────────────────────────────────
+
+  fastify.get('/admin/data-freshness', async (_req, reply) => {
+    try {
+      const freshness = await getDataFreshness(pool);
+      const { rows: shapeCounts } = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM line_shapes`
+      ).catch(() => ({ rows: [{ count: '0' }] }));
+      return reply.send({
+        entities: [...freshness.values()].map(r => ({
+          ...r,
+          lastLoadedAt: r.lastLoadedAt?.toISOString() ?? null,
+        })),
+        lineShapeCount: parseInt(shapeCounts[0]?.count ?? '0'),
+      });
+    } catch {
+      return reply.send({ entities: [], lineShapeCount: 0 });
+    }
   });
 
   fastify.get('/admin', async (_req, reply) => {
@@ -270,6 +400,13 @@ function adminHtml(): string {
   <p id="refresh-time">Loading…</p>
   <div class="grid">
 
+    <!-- Data Management -->
+    <div class="card card-wide" id="data-mgmt-card">
+      <h2>Data Management</h2>
+      <div id="data-freshness-table"></div>
+      <div id="shapes-log" style="font-family:monospace;font-size:0.78rem;color:#888;min-height:0;margin-top:0.75rem;white-space:pre-wrap"></div>
+    </div>
+
     <!-- GTFS Static -->
     <div class="card">
       <h2>GTFS Static</h2>
@@ -285,7 +422,7 @@ function adminHtml(): string {
       <div id="rt-core"></div>
       <div id="rt-error" class="error"></div>
       <button class="btn btn-green" id="btn-start" onclick="startRt()">Start Poller</button>
-      <button class="btn btn-red"   id="btn-stop"  onclick="stopRt()">Stop Poller</button>
+      <button class="btn btn-red"   id="btn-stop"  onclick="stopRt()" disabled>Stop Poller</button>
     </div>
 
     <!-- RT Vehicle stats (full width) -->
@@ -313,6 +450,20 @@ function adminHtml(): string {
         </div>
         <div id="inspector-content"></div>
       </div>
+    </div>
+
+    <!-- Patronage & Dwell -->
+    <div class="card card-wide" id="patronage-card">
+      <h2>Station Patronage &amp; Dwell Estimates</h2>
+      <div id="patronage-meta" style="font-size:0.82rem;color:#555;margin-bottom:0.75rem"></div>
+      <div id="patronage-log" style="font-family:monospace;font-size:0.78rem;color:#888;min-height:20px;margin-bottom:0.75rem;white-space:pre-wrap"></div>
+      <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:1rem">
+        <button class="btn btn-blue" id="btn-load-patronage" onclick="loadPatronage()">Load / Refresh Patronage</button>
+        <select id="dwell-line-select" style="background:#222;color:#ccc;border:1px solid #333;border-radius:5px;padding:0.3rem 0.6rem;font-size:0.83rem" onchange="loadDwellTable()">
+          <option value="">— All top-50 stops —</option>
+        </select>
+      </div>
+      <div id="dwell-table-wrap"></div>
     </div>
 
   </div>
@@ -563,6 +714,200 @@ function adminHtml(): string {
 
     fetchStatus();
     setInterval(fetchStatus, 10000);
+
+    // ── Patronage & Dwell ─────────────────────────────────────────────────
+
+    let patronagePollInterval = null;
+
+    async function loadPatronage() {
+      document.getElementById('btn-load-patronage').disabled = true;
+      document.getElementById('patronage-log').textContent = 'Starting…';
+      await fetch('/admin/patronage/load', { method: 'POST' });
+      patronagePollInterval = setInterval(pollPatronageStatus, 1500);
+    }
+
+    async function pollPatronageStatus() {
+      const res = await fetch('/admin/patronage/status');
+      const data = await res.json();
+      document.getElementById('patronage-log').textContent = (data.log ?? []).join('\\n');
+      if (!data.loading) {
+        clearInterval(patronagePollInterval);
+        patronagePollInterval = null;
+        document.getElementById('btn-load-patronage').disabled = false;
+        if (data.lastError) {
+          document.getElementById('patronage-log').textContent += '\\nERROR: ' + data.lastError;
+        }
+        loadDwellTable();
+        fetchPatronageMeta();
+      }
+    }
+
+    async function fetchPatronageMeta() {
+      const res = await fetch('/admin/patronage/dwell');
+      const data = await res.json();
+      const m = data.patronageMeta ?? {};
+      document.getElementById('patronage-meta').textContent =
+        m.matched ? \`\${m.matched} stops matched · Data year: \${m.year ?? '—'} · Loaded: \${m.loaded_at ? new Date(m.loaded_at).toLocaleString() : '—'}\`
+                  : 'No patronage data loaded yet. Click "Load / Refresh Patronage" to fetch from PTV open data.';
+
+      // Populate line selector
+      const sel = document.getElementById('dwell-line-select');
+      if (sel.options.length <= 1) {
+        const linesRes = await fetch('/api/lines');
+        const linesData = await linesRes.json();
+        (linesData.lines ?? []).forEach(l => {
+          const opt = document.createElement('option');
+          opt.value = l.lineId;
+          opt.textContent = l.name;
+          sel.appendChild(opt);
+        });
+      }
+    }
+
+    async function loadDwellTable() {
+      const lineId = document.getElementById('dwell-line-select').value;
+      const url = '/admin/patronage/dwell' + (lineId ? \`?line=\${lineId}\` : '');
+      const res = await fetch(url);
+      const { rows, patronageMeta: m } = await res.json();
+
+      document.getElementById('patronage-meta').textContent =
+        m?.matched ? \`\${m.matched} stops matched · Data year: \${m.year ?? '—'} · Loaded: \${m.loaded_at ? new Date(m.loaded_at).toLocaleString() : '—'}\`
+                   : 'No patronage data loaded yet.';
+
+      if (!rows || rows.length === 0) {
+        document.getElementById('dwell-table-wrap').innerHTML = '<p class="empty-note">No dwell stats computed yet.</p>';
+        return;
+      }
+
+      const hasLine = !!lineId;
+      const headerCols = hasLine
+        ? ['Stop', 'Lines', 'Per-line pax/yr', 'Busyness', 'Base dwell', 'Peak dwell', 'Off-peak dwell', 'Peak gap', 'Off-peak gap']
+        : ['Stop', 'Line', 'Busyness', 'Base dwell', 'Peak dwell'];
+
+      const thead = \`<tr>\${headerCols.map(c => \`<th>\${c}</th>\`).join('')}</tr>\`;
+      const tbody = rows.map(r => {
+        const busy = (r.busyness_score * 100).toFixed(0) + '%';
+        const bar = \`<div style="display:inline-block;width:\${Math.round(r.busyness_score*60)}px;height:4px;background:#3b82f6;border-radius:2px;vertical-align:middle;margin-left:4px"></div>\`;
+        if (hasLine) {
+          return \`<tr>
+            <td style="color:#ccc">\${r.stop_name.replace(/ Station$/, '')}</td>
+            <td style="color:#666">\${r.lines_at_stop}</td>
+            <td style="color:#aaa">\${r.per_line_pax_annual != null ? r.per_line_pax_annual.toLocaleString() : '—'}</td>
+            <td>\${busy}\${bar}</td>
+            <td style="color:#4ade80">\${r.base_dwell_sec?.toFixed(0) ?? '—'}s</td>
+            <td style="color:#fb923c">\${r.peak_dwell_sec?.toFixed(0) ?? '—'}s</td>
+            <td style="color:#94a3b8">\${r.offpeak_dwell_sec?.toFixed(0) ?? '—'}s</td>
+            <td style="color:#555">\${r.peak_gap_sec != null ? r.peak_gap_sec.toFixed(0)+'s' : '—'}</td>
+            <td style="color:#555">\${r.offpeak_gap_sec != null ? r.offpeak_gap_sec.toFixed(0)+'s' : '—'}</td>
+          </tr>\`;
+        } else {
+          return \`<tr>
+            <td style="color:#ccc">\${r.stop_name.replace(/ Station$/, '')}</td>
+            <td style="color:#666">\${r.line_id}</td>
+            <td>\${busy}\${bar}</td>
+            <td style="color:#4ade80">\${r.base_dwell_sec?.toFixed(0) ?? '—'}s</td>
+            <td style="color:#fb923c">\${r.peak_dwell_sec?.toFixed(0) ?? '—'}s</td>
+          </tr>\`;
+        }
+      }).join('');
+
+      document.getElementById('dwell-table-wrap').innerHTML =
+        \`<table class="veh-table"><thead>\${thead}</thead><tbody>\${tbody}</tbody></table>\`;
+    }
+
+    fetchPatronageMeta();
+
+    // ── Data Management ──────────────────────────────────────────────────────
+
+    let shapesPollInterval = null;
+
+    async function fetchDataFreshness() {
+      try {
+        const res = await fetch('/admin/data-freshness');
+        const data = await res.json();
+        renderFreshnessTable(data.entities ?? [], data.lineShapeCount ?? 0);
+      } catch { /* table not yet created */ }
+    }
+
+    function renderFreshnessTable(entities, lineShapeCount) {
+      if (entities.length === 0) {
+        document.getElementById('data-freshness-table').innerHTML =
+          '<p class="empty-note">data_freshness table not found — run migration 003.</p>';
+        return;
+      }
+
+      const FREQ_ORDER = ['manual','startup','daily','weekly','monthly'];
+      const rows = entities.map(e => {
+        const lastStr = e.lastLoadedAt
+          ? new Date(e.lastLoadedAt).toLocaleString()
+          : '<span style="color:#555">Never</span>';
+
+        const now = Date.now();
+        const lastMs = e.lastLoadedAt ? new Date(e.lastLoadedAt).getTime() : 0;
+        const thresholds = { daily: 86400000, weekly: 604800000, monthly: 2592000000 };
+        const threshold = thresholds[e.refreshFrequency];
+        const stale = e.refreshFrequency === 'manual' ? false
+          : e.refreshFrequency === 'startup' ? true
+          : !e.lastLoadedAt ? true
+          : threshold ? (now - lastMs) > threshold : false;
+        const statusBadge = stale
+          ? '<span class="badge badge-red">STALE</span>'
+          : '<span class="badge badge-green">FRESH</span>';
+
+        const extraInfo = e.entity === 'line_shapes'
+          ? \`<span style="color:#555;font-size:0.78rem;margin-left:0.5rem">\${lineShapeCount} shapes in DB</span>\`
+          : '';
+
+        const loadBtn = e.entity === 'line_shapes'
+          ? \`<button class="btn btn-blue btn-sm" onclick="loadShapes()">Load / Refresh</button>\`
+          : e.entity === 'patronage'
+          ? \`<button class="btn btn-blue btn-sm" onclick="loadPatronage()">Load / Refresh</button>\`
+          : e.entity === 'gtfs_static'
+          ? \`<button class="btn btn-blue btn-sm" onclick="reloadStatic()">Load / Reload</button>\`
+          : '';
+
+        return \`<tr>
+          <td style="color:#ccc;font-weight:500">\${e.label}</td>
+          <td style="color:#666;font-size:0.8rem">\${e.description ?? ''}</td>
+          <td>\${statusBadge}</td>
+          <td style="color:#777;font-size:0.8rem">\${e.refreshFrequency}</td>
+          <td style="color:#aaa;font-size:0.8rem">\${lastStr}\${extraInfo}</td>
+          <td>\${loadBtn}</td>
+        </tr>\`;
+      });
+
+      document.getElementById('data-freshness-table').innerHTML = \`
+        <table class="veh-table">
+          <thead><tr>
+            <th>Dataset</th><th>Description</th><th>Status</th>
+            <th>Auto-refresh</th><th>Last loaded</th><th></th>
+          </tr></thead>
+          <tbody>\${rows.join('')}</tbody>
+        </table>\`;
+    }
+
+    async function loadShapes() {
+      document.getElementById('shapes-log').textContent = 'Starting shape load…';
+      await fetch('/admin/shapes/load', { method: 'POST' });
+      shapesPollInterval = setInterval(pollShapesStatus, 1500);
+    }
+
+    async function pollShapesStatus() {
+      const res = await fetch('/admin/shapes/status');
+      const data = await res.json();
+      document.getElementById('shapes-log').textContent = (data.log ?? []).join('\\n');
+      if (!data.loading) {
+        clearInterval(shapesPollInterval);
+        shapesPollInterval = null;
+        if (data.lastError) {
+          document.getElementById('shapes-log').textContent += '\\nERROR: ' + data.lastError;
+        }
+        fetchDataFreshness();
+      }
+    }
+
+    fetchDataFreshness();
+    setInterval(fetchDataFreshness, 30000);
   </script>
 </body>
 </html>`;

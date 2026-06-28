@@ -1,8 +1,10 @@
 import type { Server } from 'socket.io';
 import { config } from '../config.js';
 import { decodeFeed, extractVehiclePositions, extractTripUpdates } from './decoder.js';
-import { publishPositions, getPublishStats } from './publisher.js';
+import { publishPositions, getPublishStats, loadMissingStopTimes, epochToMelbTime } from './publisher.js';
 import type { PublishStats } from './publisher.js';
+import { redis } from '../redis/client.js';
+import { keys } from '../redis/keys.js';
 
 export interface PollerStatus {
   running: boolean;
@@ -38,6 +40,8 @@ async function fetchFeed(url: string): Promise<Buffer> {
   return Buffer.from(await res.arrayBuffer());
 }
 
+const DEBUG_TRIP = '02-GWY--52-T3-2197';
+
 async function poll(): Promise<void> {
   const t0 = Date.now();
   try {
@@ -52,7 +56,72 @@ async function poll(): Promise<void> {
     const positions = extractVehiclePositions(vpFeed);
     const tripUpdates = extractTripUpdates(tuFeed);
 
+    // ── Debug logging for a specific trip ──────────────────────────────────
+    const now = Date.now() / 1000;
+    const debugVp = positions.find(p => p.tripId === DEBUG_TRIP);
+    const debugTu = tripUpdates.get(DEBUG_TRIP);
+    if (debugVp || debugTu) {
+      console.log(`\n[DEBUG ${DEBUG_TRIP}] poll #${status.pollCount + 1} at ${new Date().toISOString()}`);
+      if (debugVp) {
+        console.log('  VP raw:', {
+          lat: debugVp.lat.toFixed(5), lon: debugVp.lon.toFixed(5),
+          bearing: debugVp.bearing,
+          timestamp: debugVp.timestamp,
+          timestampAge: `${Math.round(now - debugVp.timestamp)}s ago`,
+        });
+      } else {
+        console.log('  VP raw: NOT IN FEED');
+      }
+      if (debugTu) {
+        console.log('  TU raw:', {
+          delay: debugTu.delay,
+          nextStopId: debugTu.nextStopId,
+          nextArrivalEpoch: debugTu.nextArrivalEpoch,
+          nextArrivalIn: `${Math.round(debugTu.nextArrivalEpoch - now)}s`,
+          total: debugTu.nextArrivalEpoch > 0
+            ? `${Math.round(debugTu.nextArrivalEpoch - (debugVp?.timestamp ?? now))}s`
+            : 'N/A',
+        });
+      } else {
+        console.log('  TU raw: NO MATCH');
+      }
+    } else {
+      console.log(`[DEBUG ${DEBUG_TRIP}] not in this poll (not on glen-waverley or not active)`);
+    }
+    // ───────────────────────────────────────────────────────────────────────
+
     if (ioRef) await publishPositions(ioRef, positions, tripUpdates);
+
+    // Batch-load stop_times for any new trips seen this poll (async, populates cache for next poll)
+    const activeTripIds = positions.map(p => p.tripId).filter(Boolean) as string[];
+    loadMissingStopTimes(activeTripIds).catch(err => console.warn('[poller] stop_times load error:', err));
+
+    // ── Log the actual LivePosition that was published for the debug trip ──
+    const raw = await redis.get(keys.vehicle(DEBUG_TRIP));
+    if (raw) {
+      const live = JSON.parse(raw);
+      const now2 = Date.now() / 1000;
+      const total   = live.nextArrivalEpoch - live.timestamp;
+      const elapsed = now2 - live.timestamp;
+      const t       = total > 0 ? Math.min(1, elapsed / total) : null;
+      console.log('  LivePosition:', {
+        segment:     `${live.prevStopName ?? '?'} → ${live.nextStopName ?? '?'}`,
+        canonicalX:  typeof live.canonicalX === 'number' ? live.canonicalX.toFixed(4) : live.canonicalX,
+        gpsAge:      `${Math.round(elapsed)}s`,
+        t:           t !== null ? t.toFixed(3) : 'N/A',
+        speedKmh:    live.segmentSpeedKmh != null ? live.segmentSpeedKmh.toFixed(1) : null,
+        delay:       `${live.delay}s`,
+        directionId: live.directionId,
+        scheduled:   epochToMelbTime(live.scheduledNextArrivalEpoch),
+        adjusted:    epochToMelbTime(live.nextArrivalEpoch),
+        predicted:   epochToMelbTime(live.predictedNextArrivalEpoch),
+        upcoming:    (live.upcomingStops ?? []).slice(0, 3).map((s: { stopId: string; adjustedArrivalEpoch: number }) =>
+          `${s.stopId}@${epochToMelbTime(s.adjustedArrivalEpoch)}`),
+      });
+    } else {
+      console.log('  LivePosition: NOT IN REDIS — trip unmapped or not in feed');
+    }
+    // ───────────────────────────────────────────────────────────────────────
 
     status.pollCount++;
     status.lastPollAt = new Date().toISOString();

@@ -10,7 +10,11 @@ import { linesRoutes } from './routes/lines.js';
 import { tripsRoutes } from './routes/trips.js';
 import { adminRoutes } from './routes/admin.js';
 import { startPoller, stopPoller } from './gtfs-rt/poller.js';
-import { setRouteLineMap, setLineStopCoords, setGlobalStopNames, setTripDirections } from './gtfs-rt/publisher.js';
+import { startStreamer, stopStreamer } from './gtfs-rt/streamer.js';
+import { setRouteLineMap, setLineStopCoords, setGlobalStopNames, setTripDirections, setPool, setDwellStats } from './gtfs-rt/publisher.js';
+import { loadDwellStatsFromDb, loadPatronageData } from './gtfs-static/patronage-loader.js';
+import { loadLineShapes } from './gtfs-static/shapes-loader.js';
+import { getDataFreshness, isStale, markLoaded } from './gtfs-static/freshness.js';
 import { getLines } from './db/queries/lines.js';
 
 async function loadRouteLineMap(): Promise<Map<string, string>> {
@@ -65,6 +69,7 @@ export async function buildApp() {
 
   fastify.addHook('onReady', async () => {
     try {
+      setPool(pool);
       const [routeMap] = await Promise.all([
         loadRouteLineMap(),
         loadLineStopCoordsFromLines(),
@@ -76,11 +81,49 @@ export async function buildApp() {
       // Routes/stops tables may be empty before first GTFS load — not fatal
       console.warn('[app] Could not load GTFS maps (data not loaded yet?):', err);
     }
-    if (config.GTFS_RT_ENABLED) startPoller(io);
+    // Load dwell stats if already computed (no-op if table empty)
+    try {
+      const dwell = await loadDwellStatsFromDb(pool);
+      setDwellStats(dwell);
+      console.log(`[app] Loaded dwell stats for ${dwell.size} stops`);
+    } catch {
+      // Table may not exist yet if migration hasn't run — not fatal
+    }
+
+    // Auto-refresh stale data entities based on configured frequencies
+    try {
+      const freshness = await getDataFreshness(pool);
+      const autoLoaders: Record<string, () => Promise<void>> = {
+        patronage: async () => {
+          await loadPatronageData(pool, msg => console.log('[patronage-auto]', msg));
+          const dwell = await loadDwellStatsFromDb(pool);
+          setDwellStats(dwell);
+        },
+        line_shapes: () => loadLineShapes(pool, msg => console.log('[shapes-auto]', msg)),
+      };
+      for (const [entity, record] of freshness) {
+        if (isStale(record) && entity in autoLoaders) {
+          console.log(`[app] Auto-loading stale entity: ${entity} (frequency: ${record.refreshFrequency}, last: ${record.lastLoadedAt?.toISOString() ?? 'never'})`);
+          autoLoaders[entity]()
+            .then(() => markLoaded(pool, entity))
+            .then(() => console.log(`[app] Auto-load complete: ${entity}`))
+            .catch(err => console.error(`[app] Auto-load failed: ${entity}:`, (err as Error).message));
+        }
+      }
+    } catch (err) {
+      // data_freshness table may not exist yet before migration 003 runs — not fatal
+      console.warn('[app] Could not check data freshness (migration 003 pending?):', (err as Error).message);
+    }
+
+    if (config.GTFS_RT_ENABLED) {
+      startPoller(io);
+      startStreamer(io);
+    }
   });
 
   fastify.addHook('onClose', async () => {
     stopPoller();
+    stopStreamer();
     io.close();
     await redis.quit();
     await redisSub.quit();
