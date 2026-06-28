@@ -80,23 +80,21 @@ export function TrainDot({ position, orientation, scaleX, stripY, lineColor, mov
   const hasSelection = selectedTripId !== null;
   const opacity      = hasSelection && !isSelected ? 0.25 : 1;
 
-  // Small filled triangle on the leading edge of the circle to show direction.
-  // AP = arrow point (tip), AB = arrow base offset from circle edge.
-  const AP = R + 5 * s;  // tip distance from centre
-  const AB = R - 1 * s;  // base distance from centre
-  const AH = 4 * s;      // half-height of arrow base
+  // Direction arrow: filled triangle outside the circle on the leading edge.
+  // Base sits just outside the circle; tip extends further beyond it.
+  const ARR_BASE = R + 2 * s;   // base distance from centre (just outside circle)
+  const ARR_TIP  = R + 9 * s;   // tip distance from centre
+  const ARR_H    = 5 * s;       // half-height of the base
 
   let directionArrow: ReactNode = null;
-  if (orientation === 'horizontal') {
-    if (movingForward === true)
-      directionArrow = <polygon points={`${AP},0 ${AB},-${AH} ${AB},${AH}`} fill="white" opacity={0.9} />;
-    else if (movingForward === false)
-      directionArrow = <polygon points={`-${AP},0 -${AB},-${AH} -${AB},${AH}`} fill="white" opacity={0.9} />;
-  } else {
-    if (movingForward === true)
-      directionArrow = <polygon points={`0,${AP} -${AH},${AB} ${AH},${AB}`} fill="white" opacity={0.9} />;
-    else if (movingForward === false)
-      directionArrow = <polygon points={`0,-${AP} -${AH},-${AB} ${AH},-${AB}`} fill="white" opacity={0.9} />;
+  if (movingForward === true) {
+    directionArrow = orientation === 'horizontal'
+      ? <polygon points={`${ARR_TIP},0 ${ARR_BASE},-${ARR_H} ${ARR_BASE},${ARR_H}`}   fill="white" stroke={lineColor} strokeWidth={1} />
+      : <polygon points={`0,${ARR_TIP} -${ARR_H},${ARR_BASE} ${ARR_H},${ARR_BASE}`}   fill="white" stroke={lineColor} strokeWidth={1} />;
+  } else if (movingForward === false) {
+    directionArrow = orientation === 'horizontal'
+      ? <polygon points={`-${ARR_TIP},0 -${ARR_BASE},-${ARR_H} -${ARR_BASE},${ARR_H}`} fill="white" stroke={lineColor} strokeWidth={1} />
+      : <polygon points={`0,-${ARR_TIP} -${ARR_H},-${ARR_BASE} ${ARR_H},-${ARR_BASE}`} fill="white" stroke={lineColor} strokeWidth={1} />;
   }
 
   return (

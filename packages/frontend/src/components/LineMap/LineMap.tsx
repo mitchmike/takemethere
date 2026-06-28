@@ -88,23 +88,9 @@ export function LineMap() {
     return () => el.removeEventListener('wheel', handleWheel);
   }, [handleWheel]);
 
-  // Filter visible lines: when zoomed, only show lines sharing a stop name with the focus line
-  // that lands within the viewport. This prevents unrelated lines from appearing just because
-  // their canonicalX range overlaps (e.g. Frankston near East Camberwell).
-  const visibleLines = useMemo(() => {
-    let selected = lines.filter(l => selectedLineIds.has(l.lineId));
-    if (viewport && focusStopNames) {
-      selected = filterLinesByViewport(selected, viewport, focusStopNames);
-    }
-    return selected.sort((a, b) => {
-      const ra = REGION_ORDER.indexOf(LINE_MAP.get(a.lineId)?.region as any);
-      const rb = REGION_ORDER.indexOf(LINE_MAP.get(b.lineId)?.region as any);
-      return (ra === -1 ? 99 : ra) - (rb === -1 ? 99 : rb);
-    });
-  }, [lines, selectedLineIds, viewport]);
-
   // Stop names on the "focus" line (selected train's line or selected station's line).
   // Used to suppress stop times on neighbour-line stops that aren't shared.
+  // MUST be declared before visibleLines (which reads it).
   const focusStopNames = useMemo<Set<string> | null>(() => {
     const normName = (n: string) => n.replace(/ Station$/, '').toLowerCase().trim();
     if (selectedTripId) {
@@ -123,6 +109,21 @@ export function LineMap() {
     }
     return null;
   }, [selectedTripId, selectedStopName, positions, lines]);
+
+  // Filter visible lines: when zoomed, only show lines sharing a stop name with the focus line
+  // that lands within the viewport. This prevents unrelated lines from appearing just because
+  // their canonicalX range overlaps (e.g. Frankston near East Camberwell).
+  const visibleLines = useMemo(() => {
+    let selected = lines.filter(l => selectedLineIds.has(l.lineId));
+    if (viewport && focusStopNames) {
+      selected = filterLinesByViewport(selected, viewport, focusStopNames);
+    }
+    return selected.sort((a, b) => {
+      const ra = REGION_ORDER.indexOf(LINE_MAP.get(a.lineId)?.region as any);
+      const rb = REGION_ORDER.indexOf(LINE_MAP.get(b.lineId)?.region as any);
+      return (ra === -1 ? 99 : ra) - (rb === -1 ? 99 : rb);
+    });
+  }, [lines, selectedLineIds, viewport, focusStopNames]);
 
   // Stop names that appear on 2+ visible lines within the viewport.
   // In the zoomed view these are rendered once as shared labels (not once per line strip).
