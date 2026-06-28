@@ -214,10 +214,14 @@ export function LineStrip({
     return pts.join(' ');
   })();
 
+  // Name label y: follow the rail's starting y so it stays next to the line when converged.
+  const firstVisibleStop = stops.find(s => isInView(s.canonicalX));
+  const lineNameY = firstVisibleStop ? stopY(firstVisibleStop.stopName) : lineY;
+
   return (
     <g>
       {/* Line name */}
-      <text x={LEFT_MARGIN - 10} y={lineY + 1} fill={line.color} fontSize={11} fontWeight={600}
+      <text x={LEFT_MARGIN - 10} y={lineNameY + 1} fill={line.color} fontSize={11} fontWeight={600}
         textAnchor="end" dominantBaseline="middle">
         {line.name}
       </text>
