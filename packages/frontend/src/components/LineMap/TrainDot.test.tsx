@@ -13,18 +13,16 @@ vi.stubGlobal('cancelAnimationFrame', vi.fn());
 
 function makeTrain(overrides: Partial<LivePosition> = {}): LivePosition {
   return {
-    tripId: 'T1',
-    lineId: 'belgrave',
-    lat: -37.85,
-    lon: 145.1,
-    bearing: 90,
+    tripId: 'T1', lineId: 'belgrave',
+    lat: -37.85, lon: 145.1, bearing: 90,
     timestamp: Date.now() / 1000 - 10,
-    canonicalX: 0.4,
-    delay: 0,
-    nextStopId: 'S2',
-    nextStopCanonicalX: 0.6,
+    canonicalX: 0.4, delay: 0, directionId: 0,
+    prevStopId: 'S1', prevStopName: 'Richmond Station', prevStopCanonicalX: 0.2,
+    nextStopId: 'S2', nextStopName: 'Camberwell Station', nextStopCanonicalX: 0.6,
+    scheduledNextArrivalEpoch: 0,
     nextArrivalEpoch: Date.now() / 1000 + 60,
-    directionId: 0,
+    predictedNextArrivalEpoch: Date.now() / 1000 + 60,
+    segmentSpeedKmh: null, upcomingStops: [],
     ...overrides,
   };
 }

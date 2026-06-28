@@ -15,7 +15,7 @@ const mockLinesStore = vi.fn((selector: any) =>
   selector({ directionFilter: 'both', selectedLineIds: new Set(), orientation: 'horizontal', lines: [], actions: {} }),
 );
 vi.mock('../../store/linesStore.js', () => ({
-  useLinesStore: (...args: any[]) => mockLinesStore(...args),
+  useLinesStore: (selector: any) => mockLinesStore(selector),
 }));
 
 const MOCK_LINE: LineDefinition = {
@@ -23,27 +23,25 @@ const MOCK_LINE: LineDefinition = {
   name: 'Belgrave',
   color: '#094C8D',
   stops: [
-    { stopId: '1', stopName: 'Flinders Street Station', canonicalX: 0,    canonicalPosition: 1, stopLat: -37.818, stopLon: 144.967 },
-    { stopId: '2', stopName: 'Richmond Station',        canonicalX: 0.1,  canonicalPosition: 2, stopLat: -37.824, stopLon: 144.990 },
-    { stopId: '3', stopName: 'Camberwell Station',      canonicalX: 0.5,  canonicalPosition: 3, stopLat: -37.824, stopLon: 145.060 },
-    { stopId: '4', stopName: 'Belgrave Station',        canonicalX: 1,    canonicalPosition: 4, stopLat: -37.902, stopLon: 145.355 },
+    { lineId: 'belgrave', stopId: '1', stopName: 'Flinders Street Station', canonicalX: 0,    canonicalPosition: 1, stopLat: -37.818, stopLon: 144.967 },
+    { lineId: 'belgrave', stopId: '2', stopName: 'Richmond Station',        canonicalX: 0.1,  canonicalPosition: 2, stopLat: -37.824, stopLon: 144.990 },
+    { lineId: 'belgrave', stopId: '3', stopName: 'Camberwell Station',      canonicalX: 0.5,  canonicalPosition: 3, stopLat: -37.824, stopLon: 145.060 },
+    { lineId: 'belgrave', stopId: '4', stopName: 'Belgrave Station',        canonicalX: 1,    canonicalPosition: 4, stopLat: -37.902, stopLon: 145.355 },
   ],
 };
 
 function makeTrain(overrides: Partial<LivePosition> = {}): LivePosition {
   return {
-    tripId: 't1',
-    lineId: 'belgrave',
-    lat: -37.85,
-    lon: 145.1,
-    bearing: 90,
+    tripId: 't1', lineId: 'belgrave',
+    lat: -37.85, lon: 145.1, bearing: 90,
     timestamp: Date.now() / 1000 - 10,
-    canonicalX: 0.3,
-    delay: 0,
-    nextStopId: '3',
-    nextStopCanonicalX: 0.5,
+    canonicalX: 0.3, delay: 0, directionId: 0,
+    prevStopId: '2', prevStopName: 'Richmond Station', prevStopCanonicalX: 0.1,
+    nextStopId: '3', nextStopName: 'Camberwell Station', nextStopCanonicalX: 0.5,
+    scheduledNextArrivalEpoch: 0,
     nextArrivalEpoch: Date.now() / 1000 + 60,
-    directionId: 0,
+    predictedNextArrivalEpoch: Date.now() / 1000 + 60,
+    segmentSpeedKmh: null, upcomingStops: [],
     ...overrides,
   };
 }

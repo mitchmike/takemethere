@@ -1,3 +1,3 @@
-import { io } from 'socket.io-client';
+import { io, type Socket } from 'socket.io-client';
 
-export const socket = io({ autoConnect: true });
+export const socket: Socket = io({ autoConnect: true });

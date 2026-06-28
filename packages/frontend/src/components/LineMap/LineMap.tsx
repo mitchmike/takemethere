@@ -8,6 +8,7 @@ import { LineFilter } from './LineFilter.js';
 import { DirectionFilter } from './DirectionFilter.js';
 import { LineStrip } from './LineStrip.js';
 import { TrainInfoPanel } from './TrainInfoPanel.js';
+import { FeedStatus } from './FeedStatus.js';
 
 export const STRIP_HEIGHT = 100;
 export const VERT_STRIP_WIDTH = 120;  // wider to fit 11px labels without clipping
@@ -62,7 +63,8 @@ export function LineMap() {
         flexWrap: 'wrap',
       }}>
         <LineFilter />
-        <div style={{ marginLeft: 'auto' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <FeedStatus />
           <DirectionFilter />
         </div>
       </div>

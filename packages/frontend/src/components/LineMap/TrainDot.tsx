@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import type { LivePosition } from '@takemethere/shared';
 import { useUiStore } from '../../store/uiStore.js';
+import { useTrainsStore } from '../../store/trainsStore.js';
 import { useAnimationFrame } from '../../hooks/useAnimationFrame.js';
 
 interface Props {
@@ -49,30 +50,15 @@ export function TrainDot({ position, orientation, scaleX, stripY, lineColor, mov
   const smoothX = useRef<number | null>(null);
   const selectedTripId = useUiStore(s => s.selectedTripId);
   const selectTrip     = useUiStore(s => s.actions.selectTrip);
-
-  useAnimationFrame((nowMs) => {
+  useAnimationFrame(() => {
     if (!gRef.current || position.canonicalX < 0) return;
 
-    // Dead-reckon toward next stop — works in both directions
-    let targetX = position.canonicalX;
-    const hasNext = position.nextArrivalEpoch > 0
-      && position.nextStopCanonicalX >= 0
-      && Math.abs(position.nextStopCanonicalX - position.canonicalX) > 0.002;
+    // Read streamed position directly from store outside React render cycle
+    // (avoids 87 re-renders/sec from streamedX map updates)
+    const streamedX = useTrainsStore.getState().streamedX.get(position.tripId);
+    const targetX = streamedX ?? position.canonicalX;
 
-    if (hasNext) {
-      const nowEpoch = Date.now() / 1000;
-      const elapsed  = nowEpoch - position.timestamp;
-      const total    = position.nextArrivalEpoch - position.timestamp;
-      if (total > 0 && elapsed > 0) {
-        const t   = Math.min(1, elapsed / total);
-        const raw = position.canonicalX + t * (position.nextStopCanonicalX - position.canonicalX);
-        const lo  = Math.min(position.canonicalX, position.nextStopCanonicalX);
-        const hi  = Math.max(position.canonicalX, position.nextStopCanonicalX);
-        targetX   = Math.max(lo, Math.min(hi, raw));
-      }
-    }
-
-    // Exponential smoothing — removes GPS jitter at poll boundaries without perceptible lag
+    // Exponential smoothing glides between 1Hz server ticks at 60fps
     if (smoothX.current === null) smoothX.current = targetX;
     else smoothX.current += (targetX - smoothX.current) * 0.12;
 
