@@ -52,6 +52,10 @@ interface Props {
   focusStopNames: Set<string> | null;
   /** Normalised stop names shared across 2+ visible lines — suppress per-line label (LineMap renders it once) */
   sharedStopNames: Set<string> | null;
+  /** Whether this strip is the focus line (selected train's line) — bypasses focusStopNames filter for times */
+  isFocusLine: boolean;
+  /** Y coordinate shared stops converge to when zoomed (null = unzoomed, use lineY everywhere) */
+  sharedStopMidY: number | null;
 }
 
 function normStopName(name: string): string {
@@ -61,6 +65,7 @@ function normStopName(name: string): string {
 export function LineStrip({
   line, trains, allPositions, orientation, svgWidth, svgHeight,
   stripIndex, stripHeight, viewport, selectedTripId, showTimes, focusStopNames, sharedStopNames,
+  isFocusLine, sharedStopMidY,
 }: Props) {
   const selectedStopName = useUiStore(s => s.selectedStopName);
   const selectStop       = useUiStore(s => s.actions.selectStop);
@@ -162,13 +167,32 @@ export function LineStrip({
   const x1 = scaleX(Math.max(lineMinCx, viewMin));
   const x2 = scaleX(Math.min(lineMaxCx, viewMax));
 
+  // stopY: shared stops converge to the mid-y across all strips when zoomed; others stay at lineY.
+  const stopY = (name: string): number => {
+    if (sharedStopMidY !== null && sharedStopNames?.has(normStopName(name))) return sharedStopMidY;
+    return lineY;
+  };
+
   let lastLabelX = -999;
   const showLabel = stops.map(stop => {
     if (!isInView(stop.canonicalX)) return false;
+    // Shared stops are rendered by LineMap — skip them entirely so they don't consume spacing
+    if (sharedStopNames?.has(normStopName(stop.stopName))) return false;
     const cx = scaleX(stop.canonicalX);
     if (cx - lastLabelX >= MIN_LABEL_GAP_PX) { lastLabelX = cx; return true; }
     return false;
   });
+
+  // Build polyline points for the rail: start/end at lineY, pass through each visible stop's stopY
+  const railPoints = (() => {
+    const pts: string[] = [`${x1},${lineY}`];
+    for (const stop of stops) {
+      if (!isInView(stop.canonicalX)) continue;
+      pts.push(`${scaleX(stop.canonicalX)},${stopY(stop.stopName)}`);
+    }
+    pts.push(`${x2},${lineY}`);
+    return pts.join(' ');
+  })();
 
   return (
     <g>
@@ -178,9 +202,9 @@ export function LineStrip({
         {line.name}
       </text>
 
-      {/* Line stroke */}
-      <line x1={x1} y1={lineY} x2={x2} y2={lineY}
-        stroke={line.color} strokeWidth={2.5} strokeLinecap="round" />
+      {/* Line stroke — polyline so shared stops can converge vertically when zoomed */}
+      <polyline points={railPoints}
+        stroke={line.color} strokeWidth={2.5} strokeLinecap="round" fill="none" />
 
       {/* Stop circles */}
       {stops.map(stop => {
@@ -189,7 +213,7 @@ export function LineStrip({
         const isSelected = selectedStopName === stop.stopName;
         const dimmed     = selectedStopName !== null && !isSelected;
         return (
-          <circle key={stop.stopId} cx={cx} cy={lineY} r={DOT_RADIUS}
+          <circle key={stop.stopId} cx={cx} cy={stopY(stop.stopName)} r={DOT_RADIUS}
             fill={isSelected ? '#f59e0b' : '#fff'}
             stroke={isSelected ? '#f59e0b' : line.color}
             strokeWidth={2} opacity={dimmed ? 0.2 : 1}
@@ -230,7 +254,8 @@ export function LineStrip({
       {/* Stop times — only rendered when viewport is active and stop is on the focus line */}
       {showTimes && stops.map(stop => {
         if (!isInView(stop.canonicalX)) return null;
-        if (focusStopNames && !focusStopNames.has(normStopName(stop.stopName))) return null;
+        // Always show times on the focus line; on other lines, filter to stops shared with the focus line
+        if (!isFocusLine && focusStopNames && !focusStopNames.has(normStopName(stop.stopName))) return null;
         const cx       = scaleX(stop.canonicalX);
         const arrivals = getArrivalsForStop(
           stop.stopId, stop.stopName, allPositions,

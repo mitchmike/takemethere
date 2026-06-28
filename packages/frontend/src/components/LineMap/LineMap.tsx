@@ -145,6 +145,15 @@ export function LineMap() {
     return shared.size > 0 ? shared : null;
   }, [viewport, visibleLines]);
 
+  // lineId of the selected train, used to mark the focus strip so it always shows stop times
+  const focusLineId = useMemo<string | null>(() => {
+    if (selectedTripId) {
+      const pos = positions.get(selectedTripId);
+      if (pos) return pos.lineId;
+    }
+    return null;
+  }, [selectedTripId, positions]);
+
   const selectedLineIdArray = useMemo(() => Array.from(selectedLineIds), [selectedLineIds]);
   useLineRoom(selectedLineIdArray);
   useDeadReckoning();
@@ -152,6 +161,13 @@ export function LineMap() {
   const isVertical  = orientation === 'vertical';
   const showTimes   = viewport !== null;
   const stripHeight = showTimes ? STRIP_HEIGHT_WITH_TIMES : STRIP_HEIGHT;
+
+  // Y coordinate where shared stops converge when zoomed (midpoint between first and last strip)
+  const sharedStopMidY = useMemo<number | null>(() => {
+    if (!viewport || visibleLines.length < 2) return null;
+    const yOffset = showTimes ? 65 : Math.round(stripHeight * 0.78);
+    return ((visibleLines.length - 1) * stripHeight) / 2 + yOffset;
+  }, [viewport, visibleLines.length, stripHeight, showTimes]);
 
   const computedSvgWidth  = isVertical ? visibleLines.length * VERT_STRIP_WIDTH + 8 : svgWidth;
   const computedSvgHeight = isVertical ? VERT_SVG_HEIGHT : visibleLines.length * stripHeight + 24;
@@ -210,17 +226,21 @@ export function LineMap() {
                 showTimes={showTimes}
                 focusStopNames={focusStopNames}
                 sharedStopNames={sharedStopNames}
+                isFocusLine={line.lineId === focusLineId}
+                sharedStopMidY={sharedStopMidY}
               />
             );
           })}
 
-          {/* Shared stop labels — rendered once above all strips when zoomed */}
+          {/* Shared stop labels — rendered once near the convergence point when zoomed */}
           {!isVertical && sharedStopNames && viewport && (() => {
             const usableWidth = computedSvgWidth - LEFT_MARGIN - RIGHT_PADDING;
             const viewMin = viewport.center - viewport.windowHalf;
             const viewMax = viewport.center + viewport.windowHalf;
             const scaleX  = (cx: number) =>
               LEFT_MARGIN + ((cx - viewMin) / (viewMax - viewMin)) * usableWidth;
+            // Place the label above the convergence point (or above the top strip if only 1 line)
+            const labelY = sharedStopMidY !== null ? sharedStopMidY - 10 : 16;
 
             // Collect unique shared stops (by norm name) from the first line that contains each
             const norm = (n: string) => n.replace(/ Station$/, '').toLowerCase().trim();
@@ -238,8 +258,8 @@ export function LineMap() {
 
             return labels.map(({ cx, name }) => (
               <text key={name}
-                transform={`rotate(-48, ${cx}, 16)`}
-                x={cx + 2} y={16}
+                transform={`rotate(-48, ${cx}, ${labelY})`}
+                x={cx + 2} y={labelY}
                 fill="#18181b" fontSize={13} fontWeight={600}
                 style={{ cursor: 'default' }}>
                 {name}

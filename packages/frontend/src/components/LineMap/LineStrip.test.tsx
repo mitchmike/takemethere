@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render } from '@testing-library/react';
-import { LineStrip } from './LineStrip.js';
+import { LineStrip, LEFT_MARGIN, RIGHT_PADDING } from './LineStrip.js';
 import type { LineDefinition, LivePosition } from '@takemethere/shared';
 
 vi.mock('../../store/uiStore.js', () => ({
@@ -59,17 +59,22 @@ const BASE_PROPS = {
   showTimes: false,
   focusStopNames: null,
   sharedStopNames: null,
+  isFocusLine: false,
+  sharedStopMidY: null,
 };
 
 describe('LineStrip', () => {
   describe('horizontal orientation', () => {
-    it('renders a horizontal rail line (y1 === y2)', () => {
+    it('renders a horizontal rail polyline', () => {
       const { container } = render(
         <svg><LineStrip {...BASE_PROPS} orientation="horizontal" /></svg>
       );
-      const rail = container.querySelector('line');
+      const rail = container.querySelector('polyline');
       expect(rail).toBeTruthy();
-      expect(rail!.getAttribute('y1')).toBe(rail!.getAttribute('y2'));
+      // Without a viewport all stops are at lineY — all y values in points should be equal
+      const pts = rail!.getAttribute('points')!.trim().split(/\s+/).map(p => parseFloat(p.split(',')[1]));
+      const firstY = pts[0];
+      expect(pts.every(y => y === firstY)).toBe(true);
     });
 
     it('renders station dots', () => {
@@ -89,13 +94,14 @@ describe('LineStrip', () => {
       expect(texts.every(t => !t?.endsWith(' Station'))).toBe(true);
     });
 
-    it('does not render past the last stop (x2 <= svgWidth)', () => {
+    it('does not render past the last stop (rightmost x <= svgWidth)', () => {
       const { container } = render(
         <svg><LineStrip {...BASE_PROPS} orientation="horizontal" /></svg>
       );
-      const rail = container.querySelector('line');
-      const x2 = parseFloat(rail!.getAttribute('x2')!);
-      expect(x2).toBeLessThanOrEqual(800);
+      const rail = container.querySelector('polyline');
+      const pts = rail!.getAttribute('points')!.trim().split(/\s+/);
+      const lastX = parseFloat(pts[pts.length - 1].split(',')[0]);
+      expect(lastX).toBeLessThanOrEqual(800);
     });
   });
 
@@ -149,6 +155,99 @@ describe('LineStrip', () => {
       );
       const texts = Array.from(container.querySelectorAll('text')).map(t => t.textContent);
       expect(texts.every(t => !t?.endsWith(' Station'))).toBe(true);
+    });
+  });
+
+  describe('shared stop step effect', () => {
+    const VIEWPORT = { center: 0.5, windowHalf: 0.4 };
+    const shared = new Set(['camberwell']);
+
+    it('polyline y at shared stop equals sharedStopMidY', () => {
+      const { container } = render(
+        <svg>
+          <LineStrip
+            {...BASE_PROPS}
+            orientation="horizontal"
+            viewport={VIEWPORT}
+            sharedStopNames={shared}
+            sharedStopMidY={120}
+          />
+        </svg>
+      );
+      const rail = container.querySelector('polyline');
+      const pts = rail!.getAttribute('points')!.trim().split(/\s+/).map(p => {
+        const [x, y] = p.split(',').map(parseFloat);
+        return { x, y };
+      });
+      // Camberwell is at canonicalX=0.5 — inside viewport — should be at y=120
+      const camberwellX = LEFT_MARGIN + ((0.5 - 0.1) / 0.8) * (800 - LEFT_MARGIN - RIGHT_PADDING);
+      const sharedPt = pts.find(p => Math.abs(p.x - camberwellX) < 1);
+      expect(sharedPt).toBeTruthy();
+      expect(sharedPt!.y).toBe(120);
+    });
+
+    it('non-shared stop label is shown even when adjacent to a shared stop', () => {
+      // Richmond is adjacent to Camberwell (the shared stop). Richmond should still get a label.
+      const { container } = render(
+        <svg>
+          <LineStrip
+            {...BASE_PROPS}
+            orientation="horizontal"
+            viewport={VIEWPORT}
+            sharedStopNames={shared}
+            sharedStopMidY={120}
+          />
+        </svg>
+      );
+      const texts = Array.from(container.querySelectorAll('text')).map(t => t.textContent);
+      // Richmond is not shared and should not be blocked by Camberwell consuming spacing
+      expect(texts.some(t => t === 'Richmond')).toBe(true);
+    });
+  });
+
+  describe('focus line times', () => {
+    it('isFocusLine=true shows times even when focusStopNames excludes the stop', () => {
+      // This tests that the focus strip bypasses the focusStopNames filter
+      const focusStopNames = new Set(['richmond']); // Camberwell intentionally excluded
+      const positions = new Map([
+        ['t1', {
+          tripId: 't1', lineId: 'belgrave', lat: -37.85, lon: 145.1, bearing: 90,
+          timestamp: Date.now() / 1000 - 10, canonicalX: 0.3, delay: 0, directionId: 0,
+          prevStopId: '2', prevStopName: 'Richmond Station', prevStopCanonicalX: 0.1,
+          nextStopId: '3', nextStopName: 'Camberwell Station', nextStopCanonicalX: 0.5,
+          scheduledNextArrivalEpoch: 0, nextArrivalEpoch: Date.now() / 1000 + 60,
+          predictedNextArrivalEpoch: Date.now() / 1000 + 60, segmentSpeedKmh: null,
+          upcomingStops: [
+            {
+              stopId: '3', stopName: 'Camberwell Station', canonicalX: 0.5,
+              scheduledArrivalEpoch: Date.now() / 1000 + 120,
+              adjustedArrivalEpoch: Date.now() / 1000 + 120,
+              predictedArrivalEpoch: Date.now() / 1000 + 120,
+              tuDelaySeconds: 0,
+            },
+          ],
+        }],
+      ]);
+
+      const VIEWPORT = { center: 0.5, windowHalf: 0.4 };
+      const { container } = render(
+        <svg>
+          <LineStrip
+            {...BASE_PROPS}
+            orientation="horizontal"
+            showTimes={true}
+            viewport={VIEWPORT}
+            allPositions={positions as any}
+            focusStopNames={focusStopNames}
+            isFocusLine={true}
+          />
+        </svg>
+      );
+      // There should be at least one time text (Camberwell arrival) even though
+      // focusStopNames only contains 'richmond'
+      const texts = Array.from(container.querySelectorAll('text')).map(t => t.textContent ?? '');
+      const hasTime = texts.some(t => /\d{2}:\d{2}/.test(t));
+      expect(hasTime).toBe(true);
     });
   });
 
