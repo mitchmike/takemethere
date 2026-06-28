@@ -21,11 +21,13 @@ export function computeTrainViewport(
   }
   const leftStop  = sorted[Math.max(0, nearestIdx - STOPS_EITHER_SIDE)];
   const rightStop = sorted[Math.min(sorted.length - 1, nearestIdx + STOPS_EITHER_SIDE)];
-  const windowHalf = Math.max(
-    Math.abs(trainCx - leftStop.canonicalX),
-    Math.abs(trainCx - rightStop.canonicalX),
-  ) * 1.1;
-  return clampViewport({ center: trainCx, windowHalf });
+  // Centre the window between the boundary stops (not on the train) so both sides
+  // always show the same number of stops rather than one side dominating.
+  const lo = leftStop.canonicalX;
+  const hi = rightStop.canonicalX;
+  const center     = (lo + hi) / 2;
+  const windowHalf = (hi - lo) / 2 * 1.1;
+  return clampViewport({ center, windowHalf });
 }
 
 export function computeStationViewport(

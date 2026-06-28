@@ -48,11 +48,17 @@ interface Props {
   viewport: Viewport | null;
   selectedTripId: string | null;
   showTimes: boolean;
+  /** Normalised stop names on the focus line — only show times at stops in this set */
+  focusStopNames: Set<string> | null;
+}
+
+function normStopName(name: string): string {
+  return name.replace(/ Station$/, '').toLowerCase().trim();
 }
 
 export function LineStrip({
   line, trains, allPositions, orientation, svgWidth, svgHeight,
-  stripIndex, stripHeight, viewport, selectedTripId, showTimes,
+  stripIndex, stripHeight, viewport, selectedTripId, showTimes, focusStopNames,
 }: Props) {
   const selectedStopName = useUiStore(s => s.selectedStopName);
   const selectStop       = useUiStore(s => s.actions.selectStop);
@@ -138,18 +144,19 @@ export function LineStrip({
   const lineY = stripIndex * stripHeight + (showTimes ? 65 : Math.round(stripHeight * 0.78));
 
   // Viewport-aware canonicalX → pixel mapping.
-  // When zoomed, map [center-windowHalf, center+windowHalf] across the full usable width.
-  const lineMinCx = stops[0].canonicalX;
-  const lineMaxCx = stops[stops.length - 1].canonicalX;
-  const viewMin = viewport ? viewport.center - viewport.windowHalf : lineMinCx;
-  const viewMax = viewport ? viewport.center + viewport.windowHalf : lineMaxCx;
+  // Default [0,1] keeps all lines on the same scale so shared stops align.
+  // When zoomed, map the viewport window across the full usable width.
+  const viewMin = viewport ? viewport.center - viewport.windowHalf : 0;
+  const viewMax = viewport ? viewport.center + viewport.windowHalf : 1;
   const scaleX  = (cx: number) =>
     LEFT_MARGIN + ((cx - viewMin) / (viewMax - viewMin)) * usableWidth;
 
   const isInView = (cx: number) =>
     !viewport || (cx >= viewMin && cx <= viewMax);
 
-  // Clip the line stroke to the viewport window (or line extent if no viewport)
+  // Clip line stroke: when zoomed, clamp to the line's actual stop extent within the window
+  const lineMinCx = stops[0].canonicalX;
+  const lineMaxCx = stops[stops.length - 1].canonicalX;
   const x1 = scaleX(Math.max(lineMinCx, viewMin));
   const x2 = scaleX(Math.min(lineMaxCx, viewMax));
 
@@ -196,18 +203,19 @@ export function LineStrip({
           scaleX={scaleX} stripY={lineY} lineColor={line.color} movingForward={movingForward(train)} />
       ))}
 
-      {/* Station labels */}
+      {/* Station labels — larger when zoomed */}
       {stops.map((stop, i) => {
         if (!showLabel[i]) return null;
         const cx         = scaleX(stop.canonicalX);
         const isSelected = selectedStopName === stop.stopName;
         const dimmed     = selectedStopName !== null && !isSelected;
+        const labelSize  = viewport ? 13 : 11;
         return (
           <text key={stop.stopId}
             transform={`rotate(-48, ${cx}, ${lineY})`}
             x={cx + 2} y={lineY - 7}
             fill={isSelected ? '#f59e0b' : '#52525b'}
-            fontSize={11} fontWeight={isSelected ? 600 : 400}
+            fontSize={labelSize} fontWeight={isSelected ? 600 : 400}
             opacity={dimmed ? 0.2 : 1}
             onClick={() => selectStop(isSelected ? null : stop.stopName)}
             style={{ cursor: 'pointer' }}>
@@ -216,9 +224,10 @@ export function LineStrip({
         );
       })}
 
-      {/* Stop times — only rendered when viewport is active (zoomed) */}
+      {/* Stop times — only rendered when viewport is active and stop is on the focus line */}
       {showTimes && stops.map(stop => {
         if (!isInView(stop.canonicalX)) return null;
+        if (focusStopNames && !focusStopNames.has(normStopName(stop.stopName))) return null;
         const cx       = scaleX(stop.canonicalX);
         const arrivals = getArrivalsForStop(
           stop.stopId, stop.stopName, allPositions,
@@ -231,19 +240,21 @@ export function LineStrip({
             {arrivals.map((arr, i) => {
               const isSelTrain  = arr.tripId === selectedTripId;
               const dirArrow    = arr.directionId === 0 ? '→' : arr.directionId === 1 ? '←' : '';
-              const timeStr     = melbTime(arr.adjustedArrivalEpoch);
-              // Delta: predicted vs adjusted. Positive = our model says train arrives later.
+              const schedStr    = melbTime(arr.adjustedArrivalEpoch);
               const delta       = arr.predictedArrivalEpoch > 0
                 ? arr.predictedArrivalEpoch - arr.adjustedArrivalEpoch
                 : 0;
               const deltaStr    = formatDelta(delta);
               const y           = lineY + TIMES_Y_OFFSET + i * TIMES_ROW_H;
+              const mainColor   = isSelTrain ? line.color : '#71717a';
               return (
                 <text key={arr.tripId} x={cx} y={y}
-                  textAnchor="middle" fontSize={9}
-                  fill={isSelTrain ? line.color : '#71717a'}
+                  textAnchor="middle" fontSize={11}
                   fontWeight={isSelTrain ? 700 : 400}>
-                  {dirArrow} {timeStr}{deltaStr ? ` ${deltaStr}` : ''}
+                  <tspan fill={mainColor}>{dirArrow} {schedStr}</tspan>
+                  {deltaStr && (
+                    <tspan fill={delta > 0 ? '#f59e0b' : '#22c55e'} fontSize={9}> GPS{deltaStr}</tspan>
+                  )}
                 </text>
               );
             })}

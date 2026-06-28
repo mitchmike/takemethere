@@ -102,6 +102,27 @@ export function LineMap() {
     });
   }, [lines, selectedLineIds, viewport]);
 
+  // Stop names on the "focus" line (selected train's line or selected station's line).
+  // Used to suppress stop times on neighbour-line stops that aren't shared.
+  const focusStopNames = useMemo<Set<string> | null>(() => {
+    const normName = (n: string) => n.replace(/ Station$/, '').toLowerCase().trim();
+    if (selectedTripId) {
+      const pos = positions.get(selectedTripId);
+      if (pos) {
+        const line = lines.find(l => l.lineId === pos.lineId);
+        if (line) return new Set(line.stops.map(s => normName(s.stopName)));
+      }
+    }
+    if (selectedStopName) {
+      for (const line of lines) {
+        if (line.stops.some(s => s.stopName === selectedStopName)) {
+          return new Set(line.stops.map(s => normName(s.stopName)));
+        }
+      }
+    }
+    return null;
+  }, [selectedTripId, selectedStopName, positions, lines]);
+
   const selectedLineIdArray = useMemo(() => Array.from(selectedLineIds), [selectedLineIds]);
   useLineRoom(selectedLineIdArray);
   useDeadReckoning();
@@ -165,6 +186,7 @@ export function LineMap() {
                 viewport={viewport}
                 selectedTripId={selectedTripId}
                 showTimes={showTimes}
+                focusStopNames={focusStopNames}
               />
             );
           })}

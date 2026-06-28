@@ -13,16 +13,23 @@ const STOPS = [
 ];
 
 describe('computeTrainViewport', () => {
-  it('centers on the train position', () => {
+  it('centers between the 3rd-left and 3rd-right boundary stops (not on the train)', () => {
+    // Train at Camberwell (idx 3, cx=0.3). 3rd left=Flinders(0.0), 3rd right=Ringwood(0.9)
+    // center = (0.0 + 0.9) / 2 = 0.45, windowHalf = 0.45 * 1.1 = 0.495
     const vp = computeTrainViewport(0.3, STOPS);
-    expect(vp.center).toBe(0.3);
+    expect(vp.center).toBeCloseTo(0.45, 5);
+    expect(vp.windowHalf).toBeCloseTo(0.495, 5);
   });
 
-  it('windowHalf spans approximately 3 stops either side', () => {
-    // Train at Camberwell (idx 3, cx=0.3). 3rd left = Flinders (idx 0, cx=0.0), 3rd right = Ringwood (idx 6, cx=0.9)
-    // max_dist = max(0.3, 0.6) * 1.1 = 0.66, clamped to MAX_WINDOW_HALF=0.65
+  it('shows 3 stops either side symmetrically even when stops are unevenly spaced', () => {
+    // Train at idx 3. lo=0.0, hi=0.9 → both sides show exactly 3 stops
     const vp = computeTrainViewport(0.3, STOPS);
-    expect(vp.windowHalf).toBe(0.65);
+    const lo = vp.center - vp.windowHalf;
+    const hi = vp.center + vp.windowHalf;
+    const leftCount  = STOPS.filter(s => s.canonicalX >= lo && s.canonicalX < 0.3).length;
+    const rightCount = STOPS.filter(s => s.canonicalX > 0.3 && s.canonicalX <= hi).length;
+    expect(leftCount).toBe(3);
+    expect(rightCount).toBe(3);
   });
 
   it('clamps windowHalf to MIN_WINDOW_HALF (0.02) for very tight stop clusters', () => {
@@ -38,15 +45,18 @@ describe('computeTrainViewport', () => {
   });
 
   it('handles a train near the start of the line (fewer stops on left)', () => {
-    // Train at Richmond (0.1). 3rd left would be out-of-bounds → clamps to Flinders (0.0)
+    // Train at Richmond (idx 1, cx=0.1). left3=idx0(0.0), right3=idx4(0.5)
+    // center = (0.0+0.5)/2 = 0.25
     const vp = computeTrainViewport(0.1, STOPS);
-    expect(vp.center).toBe(0.1);
+    expect(vp.center).toBeCloseTo(0.25, 5);
     expect(vp.windowHalf).toBeGreaterThan(0);
   });
 
   it('handles a train near the end of the line (fewer stops on right)', () => {
+    // Train at Ringwood (idx 6, cx=0.9). left3=idx3(0.3), right3=idx7(1.0)
+    // center = (0.3+1.0)/2 = 0.65
     const vp = computeTrainViewport(0.9, STOPS);
-    expect(vp.center).toBe(0.9);
+    expect(vp.center).toBeCloseTo(0.65, 5);
     expect(vp.windowHalf).toBeGreaterThan(0);
   });
 
@@ -58,7 +68,8 @@ describe('computeTrainViewport', () => {
 });
 
 describe('computeStationViewport', () => {
-  it('centers on the station', () => {
+  it('centers on the station itself (not between boundary stops)', () => {
+    // computeStationViewport keeps center = stationCx regardless of boundary stops
     const vp = computeStationViewport(0.3, STOPS);
     expect(vp.center).toBe(0.3);
   });

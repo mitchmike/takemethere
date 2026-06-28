@@ -57,6 +57,7 @@ const BASE_PROPS = {
   viewport: null,
   selectedTripId: null,
   showTimes: false,
+  focusStopNames: null,
 };
 
 describe('LineStrip', () => {
