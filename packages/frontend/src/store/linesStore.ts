@@ -12,6 +12,8 @@ interface LinesState {
   actions: {
     setLines(lines: LineDefinition[]): void;
     toggleLine(lineId: string): void;
+    selectAll(): void;
+    clearAll(): void;
     setDirection(d: DirectionFilter): void;
     setOrientation(o: Orientation): void;
   };
@@ -32,6 +34,8 @@ export const useLinesStore = create<LinesState>((set) => ({
         else next.add(lineId);
         return { selectedLineIds: next };
       }),
+    selectAll: () => set(state => ({ selectedLineIds: new Set(state.lines.map(l => l.lineId)) })),
+    clearAll: () => set({ selectedLineIds: new Set() }),
     setDirection: (directionFilter) => set({ directionFilter }),
     setOrientation: (orientation) => set({ orientation }),
   },

@@ -75,6 +75,36 @@ describe('linesStore', () => {
     });
   });
 
+  describe('selectAll', () => {
+    it('selects all lines from the store', () => {
+      useLinesStore.setState({ lines: [LINE_A, LINE_B, LINE_C], selectedLineIds: new Set(['belgrave']) });
+      useLinesStore.getState().actions.selectAll();
+      const { selectedLineIds } = useLinesStore.getState();
+      expect(selectedLineIds.has('belgrave')).toBe(true);
+      expect(selectedLineIds.has('lilydale')).toBe(true);
+      expect(selectedLineIds.has('alamein')).toBe(true);
+    });
+
+    it('is idempotent when all are already selected', () => {
+      useLinesStore.setState({ lines: [LINE_A, LINE_B], selectedLineIds: new Set(['belgrave', 'lilydale']) });
+      useLinesStore.getState().actions.selectAll();
+      expect(useLinesStore.getState().selectedLineIds.size).toBe(2);
+    });
+  });
+
+  describe('clearAll', () => {
+    it('deselects all lines in a single update', () => {
+      useLinesStore.setState({ lines: [LINE_A, LINE_B, LINE_C], selectedLineIds: new Set(['belgrave', 'lilydale', 'alamein']) });
+      useLinesStore.getState().actions.clearAll();
+      expect(useLinesStore.getState().selectedLineIds.size).toBe(0);
+    });
+
+    it('is idempotent when already empty', () => {
+      useLinesStore.getState().actions.clearAll();
+      expect(useLinesStore.getState().selectedLineIds.size).toBe(0);
+    });
+  });
+
   describe('setDirection', () => {
     it('defaults to both', () => {
       expect(useLinesStore.getState().directionFilter).toBe('both');

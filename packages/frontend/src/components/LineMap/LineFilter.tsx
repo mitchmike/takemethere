@@ -20,18 +20,11 @@ export function LineFilter() {
   const lines = useLinesStore(s => s.lines);
   const selectedLineIds = useLinesStore(s => s.selectedLineIds);
   const toggleLine = useLinesStore(s => s.actions.toggleLine);
-  const setLines = useLinesStore(s => s.actions.setLines);
+  const selectAll = useLinesStore(s => s.actions.selectAll);
+  const clearAll = useLinesStore(s => s.actions.clearAll);
 
   const allSelected = selectedLineIds.size === lines.length;
   const noneSelected = selectedLineIds.size === 0;
-
-  function selectAll() { setLines(lines); }
-  function selectNone() {
-    // clear by toggling all that are selected
-    for (const l of lines) {
-      if (selectedLineIds.has(l.lineId)) toggleLine(l.lineId);
-    }
-  }
 
   const byRegion = useMemo(() => {
     const map = new Map<string, typeof lines>();
@@ -49,8 +42,8 @@ export function LineFilter() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <span style={{ fontSize: '0.78rem', color: '#71717a', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Lines</span>
-        <button style={chip(!allSelected)} onClick={selectAll}>All</button>
-        <button style={chip(!noneSelected)} onClick={selectNone}>None</button>
+        <button style={chip(allSelected)} onClick={selectAll}>All</button>
+        <button style={chip(noneSelected)} onClick={clearAll}>None</button>
       </div>
       {Array.from(byRegion.entries()).filter(([, ls]) => ls.length > 0).map(([region, ls]) => (
         <div key={region} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px' }}>
