@@ -11,6 +11,11 @@
             "type": "command",
             "command": "$json = [Console]::In.ReadToEnd() | ConvertFrom-Json; $f = $json.tool_input.file_path; if ($f) { git add \"$f\" } 2>$null",
             "shell": "powershell"
+          },
+          {
+            "type": "command",
+            "command": "$json = [Console]::In.ReadToEnd() | ConvertFrom-Json; $f = $json.tool_input.file_path; if ($f -like 'packages/shared/*') { pnpm --filter @takemethere/shared test } elseif ($f -like 'packages/backend/*') { pnpm --filter @takemethere/backend test } elseif ($f -like 'packages/frontend/*') { pnpm --filter @takemethere/frontend test }",
+            "shell": "powershell"
           }
         ]
       }

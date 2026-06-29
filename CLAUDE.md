@@ -16,25 +16,50 @@ All file edits and writes are pre-approved for this repo. No need to confirm bef
 
 ## Notifications
 
-Send a push notification (PushNotification tool) when a task is complete. The user has Remote Control enabled and push notifications turned on in /config.
+- Send a push notification (PushNotification tool) when a task is complete. The user has Remote Control enabled and push notifications turned on in /config.
 
-## Working style
+# Development Governance
 
-- Work autonomously on well-scoped tasks; only pause for genuine ambiguity or irreversible actions
-- Prefer to batch related changes and commit logically, not per-file
-- No trailing summaries — diffs speak for themselves
-- No comments unless the WHY is non-obvious
+## AI Persona & Workflow Constraints
+* CRITICAL: You must always operate in **Plan Mode** before writing code.
+* NEVER implement code on the first turn. Iterate on the plan first.
 
-## Testing
+## The 4-Step Engineering Protocol
+1. **Plan Mode:** Propose a written plan. Explain *what* will change and *why*.
+2. **Refine Plan:** Wait for user feedback or a subagent audit. Adjust the plan.
+3. **Write Tests First (TDD):** Implement or update the tests *before* touching application logic. Run tests to see them fail.
+4. **Implementation:** Write the minimal application code to make the tests pass.
 
+## Testing Rules
 - Every new function or module must have unit tests — no exceptions
 - When modifying existing code, update or extend tests to cover the change; don't leave tests behind
-- Tests live in a `test/` folder within each package, mirroring the `src/` structure (e.g. `test/stream/engine/` for `src/stream/engine/`)
+- Tests live in a `test/` folder within each package, mirroring the `src/` structure (e.g. `test/simulator/engine.test.ts` for `src/simulator/engine.ts`)
 - Every commit must include tests for the code it changes — no code commit without a corresponding test change
-- Once the stack is chosen, wire up a PostToolUse hook to run the unit test suite automatically after edits
+* CRITICAL: Never claim a test passes unless you explicitly run the test command and output the raw terminal results. Do not hallucinate test successes.
+* Always print the raw terminal stdout summary (e.g., "OK (3 tests, 4 assertions)").
 
-### Integration testing (planned)
-The app ingests live GTFS-RT feeds. Integration tests should cover the data pipeline end-to-end against real or recorded feed snapshots. Set this up once the ingestion layer is built — record feed payloads as fixtures so tests are deterministic.
+### Test types
+
+| Type | Command | What it covers |
+|---|---|---|
+| Unit | `pnpm --filter <pkg> test` | Pure logic, no I/O |
+| Integration | `pnpm --filter @takemethere/backend test:integration` | Routes hitting real Postgres/Redis |
+| Simulator accuracy | included in `test:integration` | `test/simulator/engine.test.ts` — runs `simulateTrip` against all `data/sim-captures/*.jsonl` sessions and asserts `mae < 0.06` and `accuracyPct >= 50`. Skips automatically if no captures exist. |
+| E2E | `cd packages/frontend && npx playwright test --headless` | Full browser flows via Playwright |
+
+**PostToolUse hook** (`.claude/settings.json`): the matching package's unit tests run automatically after every file edit. Failures are surfaced inline.
+
+**Pre-commit hook** (`.git/hooks/pre-commit`): all package unit tests must pass before a commit is accepted. E2E excluded from pre-commit.
+
+### Integration testing
+Set up integration tests against real or recorded feed snapshots for each new pipeline stage. Record GTFS-RT payloads as fixtures in `test/fixtures/` so tests are deterministic. See `test/fixtures/trip-updates.pb` and `vehicle-positions.pb` for existing examples.
+
+## E2E Testing Protocol
+* DO NOT interact with the browser directly in the main chat context.
+* Write Playwright tests in `packages/frontend/e2e/` (existing: `map-smoke.spec.ts`, `interactions.spec.ts`).
+* Execute: `cd packages/frontend && npx playwright test --headless`
+* For ad-hoc verification including browser inspection, use `/verify [feature description]` — this spawns an isolated subagent that handles screenshots without clogging the main context.
+* Read the terminal text logs to determine success.
 
 ## Stack
 
@@ -50,7 +75,7 @@ The app ingests live GTFS-RT feeds. Integration tests should cover the data pipe
 | State | Zustand |
 | Rendering | SVG (switch to Canvas if perf demands) |
 | Animation | requestAnimationFrame + linear interpolation |
-| Tests | Vitest (co-located with source) |
+| Tests | Vitest (`test/` folder per package, mirroring `src/`) |
 
 ## Dev setup
 
