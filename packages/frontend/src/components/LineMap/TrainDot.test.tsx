@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, act } from '@testing-library/react';
 import { TrainDot } from './TrainDot.js';
 import type { LivePosition } from '@takemethere/shared';
 
@@ -8,8 +8,17 @@ vi.mock('../../store/uiStore.js', () => ({
     selector({ selectedTripId: null, actions: { selectTrip: vi.fn() } }),
 }));
 
-vi.stubGlobal('requestAnimationFrame', (_cb: FrameRequestCallback) => 0);
+vi.mock('../../store/trainsStore.js', () => ({
+  useTrainsStore: { getState: () => ({ streamedX: new Map() }) },
+}));
+
+// Capture the latest RAF callback so we can drive animation manually.
+// Using a single variable (not an array) so the loop's self-reschedule is preserved:
+// each invocation of rafTick() replaces rafCb with the next iteration of the loop.
+let rafCb: FrameRequestCallback | null = null;
+vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { rafCb = cb; return 1; });
 vi.stubGlobal('cancelAnimationFrame', vi.fn());
+const rafTick = () => act(() => { rafCb?.(performance.now()); });
 
 function makeTrain(overrides: Partial<LivePosition> = {}): LivePosition {
   return {
@@ -112,6 +121,41 @@ describe('TrainDot', () => {
     );
     expect(container.querySelector('g')).toBeTruthy();
     expect(container.querySelector('circle')).toBeTruthy();
+  });
+
+  it('animation callback resets smoothX when canonicalX becomes -1, so reappearance snaps to new position', () => {
+    const SCALE = (x: number) => x * 800;
+    const { container, rerender } = render(
+      <svg>
+        <TrainDot position={makeTrain({ canonicalX: 0.4 })} orientation="horizontal"
+          scaleX={SCALE} stripY={50} lineColor="#094C8D" movingForward={true} />
+      </svg>
+    );
+    // Drive one RAF frame — initialises smoothX at 0.4 → transform should contain 320
+    rafTick();
+    const g = container.querySelector('g')!;
+    expect(g.getAttribute('transform')).toContain('320'); // 0.4 * 800
+
+    // canonicalX → -1: component returns null; RAF still fires and must reset smoothX
+    rerender(
+      <svg>
+        <TrainDot position={makeTrain({ canonicalX: -1 })} orientation="horizontal"
+          scaleX={SCALE} stripY={50} lineColor="#094C8D" movingForward={true} />
+      </svg>
+    );
+    rafTick();
+
+    // canonicalX → 0.8: should snap to 640px, not slide from stale 320px
+    rerender(
+      <svg>
+        <TrainDot position={makeTrain({ canonicalX: 0.8 })} orientation="horizontal"
+          scaleX={SCALE} stripY={50} lineColor="#094C8D" movingForward={true} />
+      </svg>
+    );
+    rafTick();
+    const g2 = container.querySelector('g')!;
+    // smoothX was reset to null, so first frame snaps to 0.8 * 800 = 640
+    expect(g2.getAttribute('transform')).toContain('640');
   });
 
   it('renders a glow ring when the train is selected', () => {

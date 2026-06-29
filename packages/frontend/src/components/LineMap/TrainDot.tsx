@@ -51,7 +51,10 @@ export function TrainDot({ position, orientation, scaleX, stripY, lineColor, mov
   const selectedTripId = useUiStore(s => s.selectedTripId);
   const selectTrip     = useUiStore(s => s.actions.selectTrip);
   useAnimationFrame(() => {
-    if (!gRef.current || position.canonicalX < 0) return;
+    // Check canonicalX before gRef — when component returns null the ref is already null,
+    // so we must reset smoothX here (before the ref guard) to ensure snap-to on reappearance.
+    if (position.canonicalX < 0) { smoothX.current = null; return; }
+    if (!gRef.current) return;
 
     // Read streamed position directly from store outside React render cycle
     // (avoids 87 re-renders/sec from streamedX map updates)

@@ -108,6 +108,18 @@ describe('trainsStore', () => {
       expect(useTrainsStore.getState().streamedX.get('t2')).toBe(0.7);
     });
 
+    it('merges stream epoch 0 into position (display layer must use || not ?? to recover poll value)', () => {
+      // Scenario: poll gave a valid nextArrivalEpoch; stream then sends 0 (no schedule data).
+      // The store faithfully merges 0 (stream is more recent). The display layer is responsible
+      // for recovering poll value via `||` — this test documents the store contract.
+      const validEpoch = 1_700_100_000;
+      useTrainsStore.getState().actions.applyUpdate([makePos('t1', { nextArrivalEpoch: validEpoch })]);
+      useTrainsStore.getState().actions.applyStream([makeStream('t1', 0.45, { nextArrivalEpoch: 0 })]);
+      const pos = useTrainsStore.getState().positions.get('t1')!;
+      // Store merges 0 — the display layer (TrainInfoPanel) uses `||` to fall back to valid data
+      expect(pos.nextArrivalEpoch).toBe(0);
+    });
+
     it('does not change positions when no matching tripId exists (only streamedX changes)', () => {
       useTrainsStore.getState().actions.applyUpdate([makePos('t1')]);
       const beforePositions = useTrainsStore.getState().positions;

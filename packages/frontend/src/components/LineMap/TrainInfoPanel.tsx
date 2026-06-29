@@ -115,9 +115,11 @@ function LiveDisplay({ position, lineColor, line }: LiveDisplayProps) {
   const cx                = stream?.canonicalX ?? position.canonicalX;
   const prevStopCanonicalX = stream?.prevStopCanonicalX ?? position.prevStopCanonicalX;
   const nextStopCanonicalX = stream?.nextStopCanonicalX ?? position.nextStopCanonicalX;
-  const adjEta   = stream?.nextArrivalEpoch          ?? position.nextArrivalEpoch;
-  const predEta  = stream?.predictedNextArrivalEpoch ?? position.predictedNextArrivalEpoch;
-  const schedEta = stream?.scheduledNextArrivalEpoch ?? position.scheduledNextArrivalEpoch;
+  // Use || not ?? — epoch 0 means "unknown/no data" and should fall back to poll value.
+  // ?? only falls back on null/undefined, so stream epoch 0 would suppress a valid poll epoch.
+  const adjEta   = stream?.nextArrivalEpoch          || position.nextArrivalEpoch;
+  const predEta  = stream?.predictedNextArrivalEpoch || position.predictedNextArrivalEpoch;
+  const schedEta = stream?.scheduledNextArrivalEpoch || position.scheduledNextArrivalEpoch;
   const speed    = stream?.segmentSpeedKmh           ?? position.segmentSpeedKmh;
   const atStation = stream?.atStation ?? false;
 
