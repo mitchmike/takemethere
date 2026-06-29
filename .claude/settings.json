@@ -1,6 +1,10 @@
 {
   "permissions": {
-    "defaultMode": "acceptEdits"
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Bash(*)",
+      "Read(*)"
+    ]
   },
   "hooks": {
     "PostToolUse": [
