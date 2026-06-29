@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { projectToLine } from './gpsProjection.js';
+import { projectToLine } from '../../src/utils/gpsProjection.js';
 
 const STOPS = [
   { stopId: 'f1', canonicalX: 0,    lat: -37.818, lon: 144.967 }, // Flinders St

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useTrainsStore } from './trainsStore.js';
+import { useTrainsStore } from '../../src/store/trainsStore.js';
 import type { LivePosition, StreamedPosition } from '@takemethere/shared';
 
 function makePos(tripId: string, overrides: Partial<LivePosition> = {}): LivePosition {

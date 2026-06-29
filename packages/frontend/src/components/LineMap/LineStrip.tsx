@@ -54,8 +54,8 @@ interface Props {
   sharedStopNames: Set<string> | null;
   /** Whether this strip is the focus line (selected train's line) — bypasses focusStopNames filter for times */
   isFocusLine: boolean;
-  /** Y for shared stops on THIS strip when zoomed — closer to mid-y but still distinct (null = use lineY) */
-  sharedStopY: number | null;
+  /** Per-stop shared y positions on THIS strip when zoomed (normName → y). null = use lineY for all stops. */
+  sharedStopY: Map<string, number> | null;
 }
 
 function normStopName(name: string | null | undefined): string {
@@ -188,9 +188,12 @@ export function LineStrip({
   const x1 = scaleX(Math.max(lineMinCx, viewMin));
   const x2 = scaleX(Math.min(lineMaxCx, viewMax));
 
-  // stopY: shared stops move to this strip's closer-to-centre y; non-shared (or null name) stay at lineY.
+  // stopY: look up this stop's convergence y in the per-line Map; fall back to lineY if absent.
   const stopY = (name: string | null | undefined): number => {
-    if (sharedStopY !== null && name && sharedStopNames?.has(normStopName(name))) return sharedStopY;
+    if (sharedStopY && name) {
+      const y = sharedStopY.get(normStopName(name));
+      if (y !== undefined) return y;
+    }
     return lineY;
   };
 

@@ -1,14 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, act } from '@testing-library/react';
-import { TrainDot } from './TrainDot.js';
+import { TrainDot } from '../../../src/components/LineMap/TrainDot.js';
 import type { LivePosition } from '@takemethere/shared';
 
-vi.mock('../../store/uiStore.js', () => ({
+vi.mock('../../../src/store/uiStore.js', () => ({
   useUiStore: (selector: any) =>
     selector({ selectedTripId: null, actions: { selectTrip: vi.fn() } }),
 }));
 
-vi.mock('../../store/trainsStore.js', () => ({
+vi.mock('../../../src/store/trainsStore.js', () => ({
   useTrainsStore: { getState: () => ({ streamedX: new Map() }) },
 }));
 
@@ -159,7 +159,7 @@ describe('TrainDot', () => {
   });
 
   it('renders a glow ring when the train is selected', () => {
-    vi.doMock('../../store/uiStore.js', () => ({
+    vi.doMock('../../../src/store/uiStore.js', () => ({
       useUiStore: (selector: any) =>
         selector({ selectedTripId: 'T1', actions: { selectTrip: vi.fn() } }),
     }));

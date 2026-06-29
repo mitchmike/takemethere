@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeTrainViewport, computeStationViewport, adjustZoomViewport } from './viewport.js';
+import { computeTrainViewport, computeStationViewport, adjustZoomViewport } from '../../../src/components/LineMap/viewport.js';
 
 const STOPS = [
   { canonicalX: 0.0 },  // 0 Flinders

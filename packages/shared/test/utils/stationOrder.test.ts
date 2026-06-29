@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { computeAlignedPositions } from './stationOrder.js';
-import type { StationSequence } from './stationOrder.js';
+import { computeAlignedPositions } from '../../src/utils/stationOrder.js';
+import type { StationSequence } from '../../src/utils/stationOrder.js';
 
 // Fixture: 3 lines sharing some stations
 // Line A (reference, most stops): [S1, S2, S3, S4, S5]

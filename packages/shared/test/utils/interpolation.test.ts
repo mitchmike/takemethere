@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { clamp, lerp, deadReckonFraction, reconcileFraction } from './interpolation.js';
+import { clamp, lerp, deadReckonFraction, reconcileFraction } from '../../src/utils/interpolation.js';
 
 describe('clamp', () => {
   it('returns value when within range', () => expect(clamp(0.5, 0, 1)).toBe(0.5));

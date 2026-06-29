@@ -8,7 +8,7 @@ import {
   normaliseStopName,
   type PatronageRow,
   type GapStats,
-} from './patronage.js';
+} from '../../src/gtfs-static/patronage.js';
 
 // ─── normalisedBusyness ───────────────────────────────────────────────────────
 

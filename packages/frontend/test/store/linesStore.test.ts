@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useLinesStore } from './linesStore.js';
+import { useLinesStore } from '../../src/store/linesStore.js';
 import type { LineDefinition } from '@takemethere/shared';
 
 function makeLine(lineId: string): LineDefinition {

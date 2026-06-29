@@ -12,7 +12,7 @@ All file edits and writes are pre-approved for this repo. No need to confirm bef
 
 - Michael is a software engineer — assume solid technical background
 - Prefer terse, direct responses; no hand-holding on standard concepts
-- Long planning and programming tasks can be run independently without frequent check-ins
+- Long programming tasks can be run independently without frequent check-ins
 
 ## Notifications
 

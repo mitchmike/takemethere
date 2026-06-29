@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useUiStore } from './uiStore.js';
+import { useUiStore } from '../../src/store/uiStore.js';
 
 const VIEWPORT = { center: 0.5, windowHalf: 0.2 };
 

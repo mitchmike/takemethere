@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { longNameToLineId, selectCanonicalShape } from './shapes-loader.js';
+import { longNameToLineId, selectCanonicalShape } from '../../src/gtfs-static/shapes-loader.js';
 
 // ─── longNameToLineId ─────────────────────────────────────────────────────────
 

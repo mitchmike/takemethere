@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { filterLinesByViewport } from './viewportFilter.js';
+import { filterLinesByViewport } from '../../../src/components/LineMap/viewportFilter.js';
 import type { LineDefinition } from '@takemethere/shared';
 
 function makeStop(stopId: string, stopName: string, canonicalX: number) {

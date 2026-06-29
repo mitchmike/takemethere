@@ -1,20 +1,20 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render } from '@testing-library/react';
-import { LineStrip, LEFT_MARGIN, RIGHT_PADDING } from './LineStrip.js';
+import { LineStrip, LEFT_MARGIN, RIGHT_PADDING } from '../../../src/components/LineMap/LineStrip.js';
 import type { LineDefinition, LivePosition } from '@takemethere/shared';
 
-vi.mock('../../store/uiStore.js', () => ({
+vi.mock('../../../src/store/uiStore.js', () => ({
   useUiStore: (selector: any) =>
     selector({ selectedStopName: null, actions: { selectStop: vi.fn() } }),
 }));
 
-vi.mock('../../socket/hooks.js', () => ({ useLineRoom: vi.fn() }));
+vi.mock('../../../src/socket/hooks.js', () => ({ useLineRoom: vi.fn() }));
 
 // Default linesStore mock — overridden per test when needed
 const mockLinesStore = vi.fn((selector: any) =>
   selector({ directionFilter: 'both', selectedLineIds: new Set(), orientation: 'horizontal', lines: [], actions: {} }),
 );
-vi.mock('../../store/linesStore.js', () => ({
+vi.mock('../../../src/store/linesStore.js', () => ({
   useLinesStore: (selector: any) => mockLinesStore(selector),
 }));
 
@@ -193,7 +193,7 @@ describe('LineStrip', () => {
             orientation="horizontal"
             viewport={ZOOM_VIEWPORT}
             sharedStopNames={new Set(['camberwell'])}
-            sharedStopY={SHARED_Y}
+            sharedStopY={new Map([['camberwell', SHARED_Y]])}
           />
         </svg>
       );
@@ -215,7 +215,7 @@ describe('LineStrip', () => {
             orientation="horizontal"
             viewport={ZOOM_VIEWPORT}
             sharedStopNames={new Set(['camberwell'])} // Richmond NOT shared
-            sharedStopY={SHARED_Y}
+            sharedStopY={new Map([['camberwell', SHARED_Y]])}
           />
         </svg>
       );
@@ -240,7 +240,7 @@ describe('LineStrip', () => {
             orientation="horizontal"
             viewport={ZOOM_VIEWPORT}
             sharedStopNames={new Set(['camberwell'])}
-            sharedStopY={SHARED_Y}
+            sharedStopY={new Map([['camberwell', SHARED_Y]])}
           />
         </svg>
       );
@@ -264,7 +264,7 @@ describe('LineStrip', () => {
             orientation="horizontal"
             viewport={ZOOM_VIEWPORT}
             sharedStopNames={new Set(['camberwell'])}
-            sharedStopY={SHARED_Y}
+            sharedStopY={new Map([['camberwell', SHARED_Y]])}
           />
         </svg>
       );
@@ -288,7 +288,7 @@ describe('LineStrip', () => {
               orientation="horizontal"
               viewport={ZOOM_VIEWPORT}
               sharedStopNames={new Set(['camberwell'])}
-              sharedStopY={SHARED_Y}
+              sharedStopY={new Map([['camberwell', SHARED_Y]])}
               trains={[trainNullPrev]}
             />
           </svg>
@@ -309,7 +309,7 @@ describe('LineStrip', () => {
             orientation="horizontal"
             viewport={ZOOM_VIEWPORT}
             sharedStopNames={new Set(['richmond', 'camberwell'])}
-            sharedStopY={SHARED_Y}
+            sharedStopY={new Map([['richmond', SHARED_Y], ['camberwell', SHARED_Y]])}
           />
         </svg>
       );
@@ -327,7 +327,7 @@ describe('LineStrip', () => {
             orientation="horizontal"
             viewport={ZOOM_VIEWPORT}
             sharedStopNames={new Set(['richmond', 'camberwell'])} // Richmond first = shared
-            sharedStopY={SHARED_Y}
+            sharedStopY={new Map([['richmond', SHARED_Y], ['camberwell', SHARED_Y]])}
           />
         </svg>
       );
@@ -346,7 +346,7 @@ describe('LineStrip', () => {
             orientation="horizontal"
             viewport={ZOOM_VIEWPORT}
             sharedStopNames={new Set(['camberwell'])}
-            sharedStopY={SHARED_Y}
+            sharedStopY={new Map([['camberwell', SHARED_Y]])}
           />
         </svg>
       );
@@ -433,7 +433,7 @@ describe('LineStrip', () => {
             allPositions={positions as any}
             isFocusLine={true}
             sharedStopNames={new Set(['camberwell'])}
-            sharedStopY={sharedY}
+            sharedStopY={new Map([['camberwell', sharedY]])}
           />
         </svg>
       );
