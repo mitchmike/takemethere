@@ -249,7 +249,7 @@ export async function adminRoutes(fastify: FastifyInstance, { io }: { io: Server
          ORDER BY sds.busyness_score DESC
          LIMIT 50`;
 
-    const { rows } = await pool.query(lineId ? query : query, lineId ? [lineId] : []);
+    const { rows } = await pool.query(query, lineId ? [lineId] : []);
     const { rows: patRows } = await pool.query(
       `SELECT COUNT(*)::int AS matched, MAX(data_year) AS year, MAX(loaded_at) AS loaded_at FROM station_patronage`
     );

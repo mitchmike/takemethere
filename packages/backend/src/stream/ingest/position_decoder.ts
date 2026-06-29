@@ -63,7 +63,9 @@ export function extractTripUpdates(feed: transit_realtime.FeedMessage): Map<stri
       return t && Number(t) > nowEpoch - 60;
     });
 
-    const next = nextIdx >= 0 ? rawUpdates[nextIdx] : rawUpdates[0];
+    // If all stops are in the past, fall back to the last (terminal) stop rather than the
+    // first — rawUpdates[0] would be the trip start, potentially hours in the past.
+    const next = nextIdx >= 0 ? rawUpdates[nextIdx] : (rawUpdates.at(-1) ?? rawUpdates[0]);
     const nextStopId      = next?.stopId ?? null;
     const nextStopSeq     = next?.stopSequence ?? null;
     const rawTime         = next?.arrival?.time ?? next?.departure?.time;

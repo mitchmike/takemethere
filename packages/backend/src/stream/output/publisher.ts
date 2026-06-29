@@ -157,6 +157,7 @@ export async function publishPositions(
   const midnight     = getMelbourneMidnightEpoch();
   const now          = Date.now() / 1000;
   const routeLineMap = getRouteLineMap();
+  const pipeline     = redis.pipeline();
 
   for (const pos of positions) {
     if (!pos.tripId) continue;
@@ -260,12 +261,14 @@ export async function publishPositions(
       upcomingStops,
     };
 
-    await redis.set(keys.vehicle(pos.tripId), JSON.stringify(live), 'EX', 120);
+    pipeline.set(keys.vehicle(pos.tripId), JSON.stringify(live), 'EX', 120);
     updateLivePosition(live);
 
     if (!byLine.has(lineId)) byLine.set(lineId, []);
     byLine.get(lineId)!.push(live);
   }
+
+  await pipeline.exec();
 
   for (const [lineId, linePositions] of byLine) {
     const room = `line:${lineId}`;

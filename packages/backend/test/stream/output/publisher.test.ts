@@ -2,8 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { VehiclePosition } from '@takemethere/shared';
 import type { TripUpdateEntry } from '../../../src/stream/ingest/position_decoder.js';
 
+const { pipelineSet, pipelineExec } = vi.hoisted(() => ({
+  pipelineSet: vi.fn().mockReturnThis(),
+  pipelineExec: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock('../../../src/redis/client.js', () => ({
-  redis: { set: vi.fn().mockResolvedValue('OK'), keys: vi.fn().mockResolvedValue([]) },
+  redis: {
+    pipeline: vi.fn(() => ({ set: pipelineSet, exec: pipelineExec })),
+    keys: vi.fn().mockResolvedValue([]),
+  },
   redisSub: { subscribe: vi.fn(), on: vi.fn() },
 }));
 
@@ -102,16 +110,27 @@ describe('publishPositions', () => {
     expect(io._emitted['line:belgrave:vehicles:update']).toBeDefined();
   });
 
-  it('writes vehicle to Redis', async () => {
-    const { redis } = await import('../../../src/redis/client.js');
+  it('writes vehicle to Redis via pipeline (one set + one exec per poll)', async () => {
     const io = makeIo();
     await publishPositions(io, [makeVp()], new Map([['trip-001', makeTu()]]));
-    expect(vi.mocked(redis.set)).toHaveBeenCalledWith(
-      expect.stringContaining('trip-001'),
-      expect.any(String),
-      'EX',
-      120,
-    );
+    expect(pipelineSet).toHaveBeenCalledTimes(1);
+    expect(pipelineExec).toHaveBeenCalledTimes(1);
+    const [key, , expFlag, ttl] = pipelineSet.mock.calls[0] as [string, string, string, number];
+    expect(key).toBe('vehicle:trip-001');
+    expect(expFlag).toBe('EX');
+    expect(ttl).toBe(120);
+  });
+
+  it('pipelines all vehicles in a single exec (not one set per await)', async () => {
+    const io = makeIo();
+    setRouteLineMap(new Map([['route-belgrave', 'belgrave'], ['route-alamein', 'belgrave']]));
+    const vp1 = makeVp({ tripId: 'trip-001', routeId: 'route-belgrave' });
+    const vp2 = makeVp({ tripId: 'trip-002', routeId: 'route-belgrave' });
+    const tu1 = makeTu({ tripId: 'trip-001' });
+    const tu2 = makeTu({ tripId: 'trip-002' });
+    await publishPositions(io, [vp1, vp2], new Map([['trip-001', tu1], ['trip-002', tu2]]));
+    expect(pipelineSet).toHaveBeenCalledTimes(2);
+    expect(pipelineExec).toHaveBeenCalledTimes(1);
   });
 
   it('emits LivePosition with canonicalX in [0,1]', async () => {

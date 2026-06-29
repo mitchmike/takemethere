@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { decodeFeed, extractVehiclePositions, extractTripUpdates } from '../../../src/stream/ingest/position_decoder.js';
+import type { transit_realtime } from 'gtfs-realtime-bindings';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = path.resolve(__dirname, '../../fixtures');
@@ -90,6 +91,30 @@ describe('extractTripUpdates', () => {
     for (const entry of updates.values()) {
       expect(entry.nextArrivalEpoch).toBeGreaterThanOrEqual(0);
     }
+  });
+
+  it('when all stop updates are in the past, uses the last (terminal) stop — not the first', () => {
+    // Build a synthetic feed where all stop arrival times are in the past.
+    // Bug would be: nextStopId = first stop (hours ago); Fix: nextStopId = last stop (terminal).
+    const pastBase = Math.floor(Date.now() / 1000) - 3600;
+    const feed = {
+      entity: [{
+        tripUpdate: {
+          trip: { tripId: 'trip-past', routeId: 'r1' },
+          stopTimeUpdate: [
+            { stopId: 'stop-1', stopSequence: 1, arrival: { time: pastBase - 600, delay: 0 }, departure: null },
+            { stopId: 'stop-2', stopSequence: 2, arrival: { time: pastBase - 300, delay: 0 }, departure: null },
+            { stopId: 'stop-terminus', stopSequence: 3, arrival: { time: pastBase, delay: 0 }, departure: null },
+          ],
+        },
+      }],
+    } as unknown as transit_realtime.FeedMessage;
+
+    const updates = extractTripUpdates(feed);
+    const entry = updates.get('trip-past');
+    expect(entry).toBeDefined();
+    expect(entry!.nextStopId).toBe('stop-terminus');
+    expect(entry!.nextArrivalEpoch).toBe(pastBase);
   });
 
   it('VP entries have high TU match rate (>= 80%)', () => {
