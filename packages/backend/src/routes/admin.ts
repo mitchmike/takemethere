@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import { pool } from '../db/client.js';
 import { redis } from '../redis/client.js';
 import { startPoller, stopPoller, getPollerStatus } from '../stream/ingest/ptv_poller.js';
+import { replayController } from '../stream/ingest/replay.js';
 import { startStreamer, stopStreamer } from '../stream/output/emitter.js';
 import { setRouteLineMap, setLineStopCoords, setGlobalStopNames, setDwellStats } from '../stream/engine/static_data.js';
 import { getPrevNextStopNames } from '../stream/engine/static_data.js';
@@ -312,6 +313,35 @@ export async function adminRoutes(fastify: FastifyInstance, { io }: { io: Server
     }
   });
 
+  // ── Replay endpoints ─────────────────────────────────────────────────────────
+
+  fastify.get('/admin/replay/sessions', async (_req, reply) => {
+    const sessions = await replayController.listSessions();
+    return reply.send({ sessions });
+  });
+
+  fastify.post('/admin/replay/start', async (req, reply) => {
+    const { session, speed } = req.body as { session?: string; speed?: number };
+    if (!session) return reply.code(400).send({ error: 'session required' });
+    if (replayController.getStatus().active) return reply.code(409).send({ error: 'Replay already active' });
+    stopPoller();
+    stopStreamer();
+    replayController.start(session, io, speed ?? 1).catch(err =>
+      console.error('[replay] Start failed:', (err as Error).message)
+    );
+    return reply.send({ ok: true, status: replayController.getStatus() });
+  });
+
+  fastify.post('/admin/replay/stop', async (_req, reply) => {
+    replayController.stop();
+    io.emit('mode:update', { mode: 'live' });
+    return reply.send({ ok: true });
+  });
+
+  fastify.get('/admin/replay/status', async (_req, reply) => {
+    return reply.send(replayController.getStatus());
+  });
+
   fastify.get('/admin', async (_req, reply) => {
     reply.type('text/html').send(adminHtml());
   });
@@ -451,6 +481,29 @@ function adminHtml(): string {
         </div>
         <div id="inspector-content"></div>
       </div>
+    </div>
+
+    <!-- Replay -->
+    <div class="card card-wide" id="replay-card">
+      <h2>Historical Replay</h2>
+      <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem">
+        <select id="replay-session-select" style="background:#222;color:#ccc;border:1px solid #333;border-radius:5px;padding:0.3rem 0.6rem;font-size:0.83rem">
+          <option value="">— Select capture session —</option>
+        </select>
+        <select id="replay-speed-select" style="background:#222;color:#ccc;border:1px solid #333;border-radius:5px;padding:0.3rem 0.6rem;font-size:0.83rem">
+          <option value="1">1× speed</option>
+          <option value="2">2× speed</option>
+          <option value="5">5× speed</option>
+          <option value="10">10× speed</option>
+        </select>
+        <button class="btn btn-green" id="btn-replay-start" onclick="startReplay()">▶ Start Replay</button>
+        <button class="btn btn-red"   id="btn-replay-stop"  onclick="stopReplay()" disabled>■ Stop Replay</button>
+      </div>
+      <div id="replay-status" class="meta"></div>
+      <div id="replay-progress-wrap" class="progress-bar-wrap" style="display:none">
+        <div id="replay-progress-bar" class="progress-bar" style="width:0%"></div>
+      </div>
+      <p class="meta" style="margin-top:0.5rem;color:#555">Note: starting a replay stops the live poller. Stop the replay to resume live data.</p>
     </div>
 
     <!-- Patronage & Dwell -->
@@ -909,6 +962,79 @@ function adminHtml(): string {
 
     fetchDataFreshness();
     setInterval(fetchDataFreshness, 30000);
+
+    // ── Replay ───────────────────────────────────────────────────────────────
+
+    let replayPollInterval = null;
+
+    async function loadReplaySessions() {
+      const res = await fetch('/admin/replay/sessions');
+      const { sessions } = await res.json();
+      const sel = document.getElementById('replay-session-select');
+      sel.innerHTML = '<option value="">— Select capture session —</option>';
+      sessions.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = s;
+        sel.appendChild(opt);
+      });
+    }
+
+    async function startReplay() {
+      const session = document.getElementById('replay-session-select').value;
+      if (!session) return;
+      const speed = parseFloat(document.getElementById('replay-speed-select').value);
+      document.getElementById('btn-replay-start').disabled = true;
+      const res = await fetch('/admin/replay/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session, speed }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        alert('Replay error: ' + (err.error ?? 'unknown'));
+        document.getElementById('btn-replay-start').disabled = false;
+        return;
+      }
+      document.getElementById('btn-replay-stop').disabled = false;
+      if (!replayPollInterval) replayPollInterval = setInterval(pollReplayStatus, 1000);
+    }
+
+    async function stopReplay() {
+      await fetch('/admin/replay/stop', { method: 'POST' });
+      if (replayPollInterval) { clearInterval(replayPollInterval); replayPollInterval = null; }
+      renderReplayStatus({ active: false, session: null, snapshotIndex: 0, totalSnapshots: 0, speed: 1 });
+    }
+
+    async function pollReplayStatus() {
+      const res = await fetch('/admin/replay/status');
+      const data = await res.json();
+      renderReplayStatus(data);
+      if (!data.active) {
+        clearInterval(replayPollInterval);
+        replayPollInterval = null;
+      }
+    }
+
+    function renderReplayStatus(s) {
+      const active = s.active;
+      document.getElementById('btn-replay-start').disabled = active;
+      document.getElementById('btn-replay-stop').disabled = !active;
+      document.getElementById('replay-progress-wrap').style.display = active ? '' : 'none';
+
+      if (active) {
+        const pct = s.totalSnapshots > 0 ? Math.round((s.snapshotIndex / s.totalSnapshots) * 100) : 0;
+        document.getElementById('replay-progress-bar').style.width = pct + '%';
+        const capAt = s.capturedAt ? ' · captured ' + new Date(s.capturedAt).toLocaleTimeString() : '';
+        document.getElementById('replay-status').textContent =
+          \`Replaying \${s.session} — snapshot \${s.snapshotIndex + 1} / \${s.totalSnapshots} at \${s.speed}×\${capAt}\`;
+      } else {
+        document.getElementById('replay-status').textContent = active ? '' : 'No active replay.';
+      }
+    }
+
+    loadReplaySessions();
+    pollReplayStatus();
   </script>
 </body>
 </html>`;
