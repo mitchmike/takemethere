@@ -101,11 +101,13 @@ export function LineMap() {
       }
     }
     if (selectedStopName) {
+      const names = new Set<string>();
       for (const line of lines) {
         if (line.stops.some(s => s.stopName === selectedStopName)) {
-          return new Set(line.stops.map(s => normName(s.stopName)));
+          for (const s of line.stops) names.add(normName(s.stopName));
         }
       }
+      if (names.size > 0) return names;
     }
     return null;
   }, [selectedTripId, selectedStopName, positions, lines]);

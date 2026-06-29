@@ -79,3 +79,70 @@ describe('filterLinesByViewport', () => {
     expect(result.map(l => l.lineId)).not.toContain('impostor');
   });
 });
+
+// Station-click scenario: when a stop is served by multiple lines, focusStopNames is the
+// UNION of all those lines' stops. All serving lines must pass the filter regardless of
+// which line was used to construct the union.
+describe('filterLinesByViewport — station-click multi-line union', () => {
+  // Three lines converge at Parliament and Richmond, then diverge
+  const CITY_STOPS = [
+    makeStop('c1', 'Flinders Street Station', 0.01),
+    makeStop('c2', 'Flagstaff Station',       0.04),
+    makeStop('c3', 'Parliament Station',      0.07),
+    makeStop('c4', 'Richmond Station',        0.10),
+  ];
+
+  const BELGRAVE = makeLine('belgrave', [
+    ...CITY_STOPS,
+    makeStop('b1', 'Burnley Station',   0.14),
+    makeStop('b2', 'Hawthorn Station',  0.18),
+    makeStop('b3', 'Camberwell Station',0.22),
+  ]);
+
+  const LILYDALE = makeLine('lilydale', [
+    ...CITY_STOPS,
+    makeStop('l1', 'Burnley Station',   0.14),
+    makeStop('l2', 'Hawthorn Station',  0.18),
+    makeStop('l3', 'Ringwood Station',  0.35),
+  ]);
+
+  // A line that shares only city loop stops (no Burnley/Hawthorn)
+  const FRANKSTON2 = makeLine('frankston', [
+    ...CITY_STOPS,
+    makeStop('f1', 'South Yarra Station', 0.13),
+    makeStop('f2', 'Caulfield Station',   0.20),
+  ]);
+
+  // focusStopNames built by taking the UNION of all lines that serve 'Parliament Station'
+  // (Belgrave ∪ Lilydale ∪ Frankston) — this is what LineMap now computes
+  const UNION_FOCUS = new Set([
+    'flinders street', 'flagstaff', 'parliament', 'richmond',
+    'burnley', 'hawthorn', 'camberwell',   // from belgrave
+    'ringwood',                             // from lilydale
+    'south yarra', 'caulfield',             // from frankston
+  ]);
+
+  const VP_PARLIAMENT = { center: 0.07, windowHalf: 0.12 };  // [−0.05, 0.19]
+
+  it('includes all three lines serving Parliament when focusStopNames is the union', () => {
+    const result = filterLinesByViewport([BELGRAVE, LILYDALE, FRANKSTON2], VP_PARLIAMENT, UNION_FOCUS);
+    expect(result.map(l => l.lineId)).toContain('belgrave');
+    expect(result.map(l => l.lineId)).toContain('lilydale');
+    expect(result.map(l => l.lineId)).toContain('frankston');
+  });
+
+  it('excludes a line with no stops in the viewport even with union focusStopNames', () => {
+    const outer = makeLine('outer', [makeStop('o1', 'Far End Station', 0.95)]);
+    const result = filterLinesByViewport([BELGRAVE, LILYDALE, FRANKSTON2, outer], VP_PARLIAMENT, UNION_FOCUS);
+    expect(result.map(l => l.lineId)).not.toContain('outer');
+  });
+
+  it('excludes a truly unrelated line even when its canonicalX overlaps the viewport', () => {
+    // An unrelated line with stops in [−0.05, 0.19] but none of those stops are in UNION_FOCUS
+    const unrelated = makeLine('unrelated', [
+      makeStop('u1', 'Mystery Stop Station', 0.08),  // cx in range, NOT in union focus names
+    ]);
+    const result = filterLinesByViewport([BELGRAVE, unrelated], VP_PARLIAMENT, UNION_FOCUS);
+    expect(result.map(l => l.lineId)).not.toContain('unrelated');
+  });
+});
