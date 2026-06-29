@@ -12,6 +12,7 @@ import { TrainInfoPanel } from './TrainInfoPanel.js';
 import { FeedStatus } from './FeedStatus.js';
 import { computeTrainViewport, computeStationViewport } from './viewport.js';
 import { filterLinesByViewport } from './viewportFilter.js';
+import { computeSharedStopLayout } from './sharedStopLayout.js';
 
 export const STRIP_HEIGHT            = 100;
 export const STRIP_HEIGHT_WITH_TIMES = 155;
@@ -127,25 +128,6 @@ export function LineMap() {
     });
   }, [lines, selectedLineIds, viewport, focusStopNames, orientation]);
 
-  // Stop names that appear on 2+ visible lines within the viewport.
-  // In the zoomed view these are rendered once as shared labels (not once per line strip).
-  const sharedStopNames = useMemo<Set<string> | null>(() => {
-    if (!viewport || visibleLines.length < 2) return null;
-    const norm = (n: string) => n.replace(/ Station$/, '').toLowerCase().trim();
-    const lo = viewport.center - viewport.windowHalf;
-    const hi = viewport.center + viewport.windowHalf;
-    const nameCounts = new Map<string, number>();
-    for (const line of visibleLines) {
-      for (const stop of line.stops) {
-        if (stop.canonicalX < lo || stop.canonicalX > hi) continue;
-        const n = norm(stop.stopName);
-        nameCounts.set(n, (nameCounts.get(n) ?? 0) + 1);
-      }
-    }
-    const shared = new Set<string>();
-    for (const [name, count] of nameCounts) { if (count >= 2) shared.add(name); }
-    return shared.size > 0 ? shared : null;
-  }, [viewport, visibleLines]);
 
   // lineId of the selected train, used to mark the focus strip so it always shows stop times
   const focusLineId = useMemo<string | null>(() => {
@@ -164,23 +146,14 @@ export function LineMap() {
   const showTimes   = viewport !== null;
   const stripHeight = showTimes ? STRIP_HEIGHT_WITH_TIMES : STRIP_HEIGHT;
 
-  // How far each strip moves toward the centre at shared stops — keeps lines distinct but closer.
-  const SHARE_FACTOR = 0.6;
-
-  // Midpoint y between all strips — used for the shared-stop label position.
-  const sharedStopMidY = useMemo<number | null>(() => {
-    if (!viewport || visibleLines.length < 2) return null;
-    const yOffset = showTimes ? 65 : Math.round(stripHeight * 0.78);
-    return ((visibleLines.length - 1) * stripHeight) / 2 + yOffset;
-  }, [viewport, visibleLines.length, stripHeight, showTimes]);
-
-  // Per-strip sharedStopY: each strip's shared-stop y, pulled SHARE_FACTOR toward the midpoint.
   const yOffset = showTimes ? 65 : Math.round(stripHeight * 0.78);
-  const getSharedStopY = (i: number): number | null => {
-    if (sharedStopMidY === null) return null;
-    const lineYi = i * stripHeight + yOffset;
-    return lineYi + SHARE_FACTOR * (sharedStopMidY - lineYi);
-  };
+  const sharedLayout = useMemo(
+    () => (viewport && visibleLines.length >= 2)
+      ? computeSharedStopLayout(visibleLines, viewport, stripHeight, yOffset)
+      : null,
+    [visibleLines, viewport, stripHeight, yOffset],
+  );
+  const sharedStopNames = sharedLayout?.sharedNames.size ? sharedLayout.sharedNames : null;
 
   const computedSvgWidth  = isVertical ? visibleLines.length * VERT_STRIP_WIDTH + 8 : svgWidth;
   const computedSvgHeight = isVertical ? VERT_SVG_HEIGHT : visibleLines.length * stripHeight + 24;
@@ -240,7 +213,7 @@ export function LineMap() {
                 focusStopNames={focusStopNames}
                 sharedStopNames={isVertical ? null : sharedStopNames}
                 isFocusLine={line.lineId === focusLineId}
-                sharedStopY={isVertical ? null : getSharedStopY(i)}
+                sharedStopY={isVertical ? null : (sharedLayout?.sharedYs.get(line.lineId) ?? null)}
               />
             );
           })}
